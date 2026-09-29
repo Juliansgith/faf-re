@@ -30,6 +30,7 @@
 #include "moho/misc/FileWaitHandleSet.h"
 #include "moho/misc/ID3DDeviceResources.h"
 #include "moho/misc/StartupHelpers.h"
+#include "moho/math/QuaternionMath.h"
 #include "moho/math/Vector4f.h"
 #include "moho/console/CVarAccess.h"
 #include "moho/render/Cartographic.h"
@@ -302,71 +303,27 @@ namespace
     (void)archiveSheet->SaveToArchive(writer.stream(), true);
   }
 
-  [[nodiscard]] QuaternionLanes QuaternionFromMatrixRows(const float matrix[3][3]) noexcept
+  /**
+   * 0x00891B21-0x00891BE8 (inside CWldProps::Load): func_MatrixToQuat (0x004EB3F0) on the nine
+   * matrix lanes as read, then a normalize -- length from ((z*z + y*y) + x*x) + w*w, every lane
+   * scaled by 1/length, all lanes zeroed when the length is not above 1e-6.
+   */
+  [[nodiscard]] Wm3::Quaternionf PropOrientationFromMatrixRows(const float matrix[3][3]) noexcept
   {
-    QuaternionLanes out{1.0f, 0.0f, 0.0f, 0.0f};
+    const Wm3::Vector3f rows[3] = {
+      Wm3::Vector3f{matrix[0][0], matrix[0][1], matrix[0][2]},
+      Wm3::Vector3f{matrix[1][0], matrix[1][1], matrix[1][2]},
+      Wm3::Vector3f{matrix[2][0], matrix[2][1], matrix[2][2]},
+    };
+    Wm3::Quaternionf q{};
+    (void)moho::MatrixToQuat(rows, &q);
 
-    const float trace = matrix[0][0] + matrix[1][1] + matrix[2][2];
-    if (trace > 0.0f) {
-      const float s = std::sqrt(trace + 1.0f) * 2.0f;
-      if (s > kQuaternionNormalizeEpsilon) {
-        out.w = 0.25f * s;
-        out.x = (matrix[2][1] - matrix[1][2]) / s;
-        out.y = (matrix[0][2] - matrix[2][0]) / s;
-        out.z = (matrix[1][0] - matrix[0][1]) / s;
-      }
-      return out;
+    const float length = std::sqrt((((q.z * q.z) + (q.y * q.y)) + (q.x * q.x)) + (q.w * q.w));
+    if (!(length > kQuaternionNormalizeEpsilon)) {
+      return Wm3::Quaternionf{0.0f, 0.0f, 0.0f, 0.0f};
     }
-
-    if (matrix[0][0] > matrix[1][1] && matrix[0][0] > matrix[2][2]) {
-      const float s = std::sqrt(1.0f + matrix[0][0] - matrix[1][1] - matrix[2][2]) * 2.0f;
-      if (s > kQuaternionNormalizeEpsilon) {
-        out.w = (matrix[2][1] - matrix[1][2]) / s;
-        out.x = 0.25f * s;
-        out.y = (matrix[0][1] + matrix[1][0]) / s;
-        out.z = (matrix[0][2] + matrix[2][0]) / s;
-      }
-      return out;
-    }
-
-    if (matrix[1][1] > matrix[2][2]) {
-      const float s = std::sqrt(1.0f + matrix[1][1] - matrix[0][0] - matrix[2][2]) * 2.0f;
-      if (s > kQuaternionNormalizeEpsilon) {
-        out.w = (matrix[0][2] - matrix[2][0]) / s;
-        out.x = (matrix[0][1] + matrix[1][0]) / s;
-        out.y = 0.25f * s;
-        out.z = (matrix[1][2] + matrix[2][1]) / s;
-      }
-      return out;
-    }
-
-    const float s = std::sqrt(1.0f + matrix[2][2] - matrix[0][0] - matrix[1][1]) * 2.0f;
-    if (s > kQuaternionNormalizeEpsilon) {
-      out.w = (matrix[1][0] - matrix[0][1]) / s;
-      out.x = (matrix[0][2] + matrix[2][0]) / s;
-      out.y = (matrix[1][2] + matrix[2][1]) / s;
-      out.z = 0.25f * s;
-    }
-    return out;
-  }
-
-  void NormalizeQuaternionLanes(QuaternionLanes& q) noexcept
-  {
-    const float magnitude =
-      std::sqrt((q.w * q.w) + (q.x * q.x) + (q.y * q.y) + (q.z * q.z));
-    if (magnitude <= kQuaternionNormalizeEpsilon) {
-      q.w = 0.0f;
-      q.x = 0.0f;
-      q.y = 0.0f;
-      q.z = 0.0f;
-      return;
-    }
-
-    const float inverseMagnitude = 1.0f / magnitude;
-    q.w *= inverseMagnitude;
-    q.x *= inverseMagnitude;
-    q.y *= inverseMagnitude;
-    q.z *= inverseMagnitude;
+    const float inverseLength = 1.0f / length;
+    return Wm3::Quaternionf{q.w * inverseLength, q.x * inverseLength, q.y * inverseLength, q.z * inverseLength};
   }
 
   void QuaternionToRotationRows(const QuaternionLanes& q, float matrix[3][3]) noexcept
@@ -1239,9 +1196,9 @@ namespace moho
       reader.ReadExact(ignoredLane1);
       reader.ReadExact(ignoredLane2);
 
-      QuaternionLanes orientation = QuaternionFromMatrixRows(matrix);
-      NormalizeQuaternionLanes(orientation);
-      transform.orient_ = Wm3::Quatf{orientation.w, orientation.x, orientation.y, orientation.z};
+      // The binary converts with func_MatrixToQuat; a textbook conversion with the opposite lane
+      // order gave every map prop the conjugate orientation (mirrored heading and collision box).
+      transform.orient_ = PropOrientationFromMatrixRows(matrix);
 
       PackWldPropEntry(mEntries[index], transform, blueprintPath);
     }
