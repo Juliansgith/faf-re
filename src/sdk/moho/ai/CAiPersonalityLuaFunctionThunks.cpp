@@ -77,7 +77,7 @@ namespace moho
 {
   class CAiPersonality;
 
-  [[nodiscard]] CScrLuaInitFormSet& ClassBinderSimLuaInitSet()
+  [[nodiscard]] static CScrLuaInitFormSet& ClassBinderSimLuaInitSet()
   {
     if (CScrLuaInitFormSet* const set = SCR_FindLuaInitFormSet("Sim"); set != nullptr) {
       return *set;
