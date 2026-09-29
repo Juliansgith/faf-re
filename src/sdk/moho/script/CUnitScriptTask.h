@@ -132,25 +132,7 @@ namespace moho
    * VFTABLE: 0x00E20C00
    * COL: 0x00E7A0D0
    */
-  template <>
-  class CScrLuaMetatableFactory<CUnitScriptTask> final : public CScrLuaObjectFactory
-  {
-  public:
-    static CScrLuaMetatableFactory& Instance();
-
-  protected:
-    /**
-     * Address: 0x00623B50 (FUN_00623B50, ?Create@?$CScrLuaMetatableFactory@VCUnitScriptTask@Moho@@@Moho@@MAE?AVLuaObject@LuaPlus@@PAVLuaState@4@@Z)
-     *
-     * What it does:
-     * Builds the metatable object used for `CUnitScriptTask` Lua userdata.
-     */
-    LuaPlus::LuaObject Create(LuaPlus::LuaState* state) override;
-
-  private:
-    CScrLuaMetatableFactory();
-    static CScrLuaMetatableFactory sInstance;
-  };
+  // CScrLuaMetatableFactory<CUnitScriptTask> is the primary template: one definition in every translation unit.
 
   static_assert(
     sizeof(CScrLuaMetatableFactory<CUnitScriptTask>) == 0x8,

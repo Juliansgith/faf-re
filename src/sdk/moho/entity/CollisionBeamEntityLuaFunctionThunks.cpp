@@ -41,40 +41,20 @@ namespace moho
   int cfunc_CollisionBeamEntityGetLauncher(lua_State* luaContext);
   int cfunc_CollisionBeamEntityGetLauncherL(LuaPlus::LuaState* state);
 
-  template <>
-  class CScrLuaMetatableFactory<CollisionBeamEntity> final : public CScrLuaObjectFactory
-  {
-  public:
-    static CScrLuaMetatableFactory& Instance();
-
-  protected:
-    LuaPlus::LuaObject Create(LuaPlus::LuaState* state) override;
-
-  private:
-    CScrLuaMetatableFactory();
-    static CScrLuaMetatableFactory sInstance;
-  };
+  // CScrLuaMetatableFactory<CollisionBeamEntity> is the primary template: one definition in every translation unit.
 
   static_assert(
     sizeof(CScrLuaMetatableFactory<CollisionBeamEntity>) == 0x08,
     "CScrLuaMetatableFactory<CollisionBeamEntity> size must be 0x8"
   );
 
-  CScrLuaMetatableFactory<CollisionBeamEntity> CScrLuaMetatableFactory<CollisionBeamEntity>::sInstance{};
+  // CScrLuaMetatableFactory<CollisionBeamEntity> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CollisionBeamEntity>::CScrLuaMetatableFactory()
-    : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-  {}
+  // CScrLuaMetatableFactory<CollisionBeamEntity> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CollisionBeamEntity>& CScrLuaMetatableFactory<CollisionBeamEntity>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<CollisionBeamEntity> is the primary template: one definition in every translation unit.
 
-  LuaPlus::LuaObject CScrLuaMetatableFactory<CollisionBeamEntity>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<CollisionBeamEntity> is the primary template: one definition in every translation unit.
 } // namespace moho
 
 namespace

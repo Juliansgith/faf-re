@@ -44,8 +44,7 @@ namespace moho
 
 bool moho::dbg_Ballistics = false;
 gpg::RType* moho::CAimManipulator::sType = nullptr;
-moho::CScrLuaMetatableFactory<moho::CAimManipulator>
-  moho::CScrLuaMetatableFactory<moho::CAimManipulator>::sInstance{};
+// CScrLuaMetatableFactory<CAimManipulator> is the primary template: one definition in every translation unit.
 
 namespace
 {
@@ -1133,15 +1132,9 @@ Wm3::Vector3f* moho::CAimManipulator::Aim(Wm3::Vector3f* const outDirection, CAi
   return outDirection;
 }
 
-moho::CScrLuaMetatableFactory<moho::CAimManipulator>::CScrLuaMetatableFactory()
-  : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-{}
+// CScrLuaMetatableFactory<CAimManipulator> is the primary template: one definition in every translation unit.
 
-moho::CScrLuaMetatableFactory<moho::CAimManipulator>&
-moho::CScrLuaMetatableFactory<moho::CAimManipulator>::Instance()
-{
-  return sInstance;
-}
+// CScrLuaMetatableFactory<CAimManipulator> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x00632C40 (FUN_00632C40)
@@ -1151,10 +1144,7 @@ moho::CScrLuaMetatableFactory<moho::CAimManipulator>::Instance()
  * Creates the `CAimManipulator` Lua metatable through
  * `SCR_CreateSimpleMetatable`.
  */
-LuaPlus::LuaObject moho::CScrLuaMetatableFactory<moho::CAimManipulator>::Create(LuaPlus::LuaState* const state)
-{
-  return SCR_CreateSimpleMetatable(state);
-}
+// CScrLuaMetatableFactory<CAimManipulator> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x00632140 (FUN_00632140, cfunc_CAimManipulatorSetFiringArc)

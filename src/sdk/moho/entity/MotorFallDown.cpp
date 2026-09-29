@@ -205,20 +205,14 @@ namespace
 namespace moho
 {
   gpg::RType* MotorFallDown::sType = nullptr;
-  CScrLuaMetatableFactory<MotorFallDown> CScrLuaMetatableFactory<MotorFallDown>::sInstance{};
+  // CScrLuaMetatableFactory<MotorFallDown> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<MotorFallDown>& CScrLuaMetatableFactory<MotorFallDown>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<MotorFallDown> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x00695B90 (FUN_00695B90, Moho::CScrLuaMetatableFactory<Moho::MotorFallDown>::Create)
    */
-  LuaPlus::LuaObject CScrLuaMetatableFactory<MotorFallDown>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<MotorFallDown> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x00694CF0 (FUN_00694CF0, default ctor lane)

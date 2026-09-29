@@ -850,13 +850,7 @@ namespace moho
    * What it does:
    * Stores one factory-table slot index used by CScrLuaObjectFactory::Get.
    */
-  CScrLuaMetatableFactory<CCollisionManipulator>& CScrLuaMetatableFactory<CCollisionManipulator>::Instance()
-  {
-    static CScrLuaMetatableFactory<CCollisionManipulator> instance(
-      CScrLuaObjectFactory::AllocateFactoryObjectIndex()
-    );
-    return instance;
-  }
+  // CScrLuaMetatableFactory<CCollisionManipulator> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x00638BF0 (FUN_00638BF0)
@@ -877,17 +871,12 @@ namespace moho
    * What it does:
    * Stores one factory-table slot index used by CScrLuaObjectFactory::Get.
    */
-  CScrLuaMetatableFactory<CCollisionManipulator>::CScrLuaMetatableFactory(const std::int32_t factoryObjectIndex)
-    : CScrLuaObjectFactory(factoryObjectIndex)
-  {}
+  // CScrLuaMetatableFactory<CCollisionManipulator> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x00638640 (FUN_00638640)
    */
-  LuaPlus::LuaObject CScrLuaMetatableFactory<CCollisionManipulator>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<CCollisionManipulator> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x006379A0 (FUN_006379A0, scalar deleting destructor thunk)

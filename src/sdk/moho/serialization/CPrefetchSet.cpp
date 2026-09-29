@@ -101,7 +101,7 @@ namespace
 namespace moho
 {
   gpg::RType* CPrefetchSet::sType = nullptr;
-  CScrLuaMetatableFactory<CPrefetchSet> CScrLuaMetatableFactory<CPrefetchSet>::sInstance{};
+  // CScrLuaMetatableFactory<CPrefetchSet> is the primary template: one definition in every translation unit.
 
   gpg::RType* CPrefetchSet::StaticGetClass()
   {
@@ -159,18 +159,12 @@ namespace moho
     mHandles.clear();
   }
 
-  CScrLuaMetatableFactory<CPrefetchSet>& CScrLuaMetatableFactory<CPrefetchSet>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<CPrefetchSet> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x004A5FC0 (FUN_004A5FC0, Moho::CScrLuaMetatableFactory<Moho::CPrefetchSet>::Create)
    */
-  LuaPlus::LuaObject CScrLuaMetatableFactory<CPrefetchSet>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<CPrefetchSet> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x004A7D20 (FUN_004A7D20, func_CreatePrefetchSet)

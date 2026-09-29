@@ -12,7 +12,7 @@ namespace moho
 {
   gpg::RType* HSound::sType = nullptr;
 
-  CScrLuaMetatableFactory<HSound> CScrLuaMetatableFactory<HSound>::sInstance{};
+  // CScrLuaMetatableFactory<HSound> is the primary template: one definition in every translation unit.
 } // namespace moho
 
 /**
@@ -21,14 +21,9 @@ namespace moho
  * What it does:
  * Stores one metatable-factory index used by `CScrLuaObjectFactory::Get`.
  */
-moho::CScrLuaMetatableFactory<moho::HSound>::CScrLuaMetatableFactory()
-  : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-{}
+// CScrLuaMetatableFactory<HSound> is the primary template: one definition in every translation unit.
 
-moho::CScrLuaMetatableFactory<moho::HSound>& moho::CScrLuaMetatableFactory<moho::HSound>::Instance()
-{
-  return sInstance;
-}
+// CScrLuaMetatableFactory<HSound> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x004E1F20 (FUN_004E1F20, Moho::CScrLuaMetatableFactory<Moho::HSound>::Create)
@@ -36,10 +31,7 @@ moho::CScrLuaMetatableFactory<moho::HSound>& moho::CScrLuaMetatableFactory<moho:
  * What it does:
  * Builds one simple metatable table for `HSound` userdata lanes.
  */
-LuaPlus::LuaObject moho::CScrLuaMetatableFactory<moho::HSound>::Create(LuaPlus::LuaState* const state)
-{
-  return SCR_CreateSimpleMetatable(state);
-}
+// CScrLuaMetatableFactory<HSound> is the primary template: one definition in every translation unit.
 
 namespace moho
 {

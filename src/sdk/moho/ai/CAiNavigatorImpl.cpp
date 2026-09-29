@@ -266,7 +266,7 @@ namespace
 } // namespace
 
 gpg::RType* CAiNavigatorImpl::sType = nullptr;
-CScrLuaMetatableFactory<CAiNavigatorImpl> CScrLuaMetatableFactory<CAiNavigatorImpl>::sInstance{};
+// CScrLuaMetatableFactory<CAiNavigatorImpl> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x005A58E0 (FUN_005A58E0, cfunc_CAiNavigatorImplSetGoalL)
@@ -1248,22 +1248,14 @@ namespace
 /**
  * Address: 0x1001FDE0 (MohoEngine.dll constructor shape)
  */
-CScrLuaMetatableFactory<CAiNavigatorImpl>::CScrLuaMetatableFactory()
-  : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-{}
+// CScrLuaMetatableFactory<CAiNavigatorImpl> is the primary template: one definition in every translation unit.
 
-CScrLuaMetatableFactory<CAiNavigatorImpl>& CScrLuaMetatableFactory<CAiNavigatorImpl>::Instance()
-{
-  return sInstance;
-}
+// CScrLuaMetatableFactory<CAiNavigatorImpl> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x005A7310 (FUN_005A7310, ?Create@?$CScrLuaMetatableFactory@VCAiNavigatorImpl@Moho@@@Moho@@MAE?AVLuaObject@LuaPlus@@PAVLuaState@4@@Z)
  */
-LuaPlus::LuaObject CScrLuaMetatableFactory<CAiNavigatorImpl>::Create(LuaPlus::LuaState* const state)
-{
-  return SCR_CreateSimpleMetatable(state);
-}
+// CScrLuaMetatableFactory<CAiNavigatorImpl> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x005A3550 (FUN_005A3550, default ctor)

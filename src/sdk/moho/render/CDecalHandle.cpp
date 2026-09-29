@@ -83,21 +83,13 @@ namespace moho
 
   gpg::RType* CDecalHandle::sType = nullptr;
   gpg::RType* CDecalHandle::sPointerType = nullptr;
-  CScrLuaMetatableFactory<CDecalHandle> CScrLuaMetatableFactory<CDecalHandle>::sInstance{};
+  // CScrLuaMetatableFactory<CDecalHandle> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CDecalHandle>::CScrLuaMetatableFactory()
-    : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-  {}
+  // CScrLuaMetatableFactory<CDecalHandle> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CDecalHandle>& CScrLuaMetatableFactory<CDecalHandle>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<CDecalHandle> is the primary template: one definition in every translation unit.
 
-  LuaPlus::LuaObject CScrLuaMetatableFactory<CDecalHandle>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<CDecalHandle> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x007788B0 (FUN_007788B0, Moho::CDecalHandle::GetClass)

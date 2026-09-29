@@ -61,18 +61,7 @@
 
 namespace moho
 {
-  template <>
-  class CScrLuaMetatableFactory<CPlatoon> final : public CScrLuaObjectFactory
-  {
-  public:
-    [[nodiscard]] static CScrLuaMetatableFactory& Instance();
-
-  protected:
-    LuaPlus::LuaObject Create(LuaPlus::LuaState* state) override;
-
-  private:
-    static CScrLuaMetatableFactory sInstance;
-  };
+  // CScrLuaMetatableFactory<CPlatoon> is the primary template: one definition in every translation unit.
 
   static_assert(
     sizeof(CScrLuaMetatableFactory<CPlatoon>) == 0x08, "CScrLuaMetatableFactory<CPlatoon> size must be 0x08"
@@ -486,7 +475,7 @@ namespace
 
 namespace moho
 {
-  CScrLuaMetatableFactory<CPlatoon> CScrLuaMetatableFactory<CPlatoon>::sInstance{};
+  // CScrLuaMetatableFactory<CPlatoon> is the primary template: one definition in every translation unit.
 
   int cfunc_CPlatoonGetPersonality(lua_State* luaContext);
   int cfunc_CPlatoonGetBrain(lua_State* luaContext);
@@ -551,10 +540,7 @@ namespace moho
   int cfunc_CPlatoonPlatoonCategoryCountAroundPositionL(LuaPlus::LuaState* state);
   int cfunc_CPlatoonPlatoonCategoryCountL(LuaPlus::LuaState* state);
 
-  CScrLuaMetatableFactory<CPlatoon>& CScrLuaMetatableFactory<CPlatoon>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<CPlatoon> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x0072AC30 (FUN_0072AC30)
@@ -629,10 +615,7 @@ namespace moho
     return &instance;
   }
 
-  LuaPlus::LuaObject CScrLuaMetatableFactory<CPlatoon>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<CPlatoon> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x00723AC0 (FUN_00723AC0, Moho::CPlatoon::GetClass)

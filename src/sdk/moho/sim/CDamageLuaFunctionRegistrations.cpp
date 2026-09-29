@@ -69,7 +69,7 @@ namespace
 
 namespace moho
 {
-  CScrLuaMetatableFactory<CDamage> CScrLuaMetatableFactory<CDamage>::sInstance{};
+  // CScrLuaMetatableFactory<CDamage> is the primary template: one definition in every translation unit.
 
   /**
     * Alias of FUN_10015880 (non-canonical helper lane).
@@ -77,14 +77,9 @@ namespace moho
    * What it does:
    * Stores one metatable-factory index used by `CScrLuaObjectFactory::Get`.
    */
-  CScrLuaMetatableFactory<CDamage>::CScrLuaMetatableFactory()
-    : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-  {}
+  // CScrLuaMetatableFactory<CDamage> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CDamage>& CScrLuaMetatableFactory<CDamage>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<CDamage> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x0073AA90 (FUN_0073AA90)
@@ -106,10 +101,7 @@ namespace moho
    * What it does:
    * Creates the default metatable used by `CDamage` Lua userdata.
    */
-  LuaPlus::LuaObject CScrLuaMetatableFactory<CDamage>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<CDamage> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x0073A810 (FUN_0073A810, func_CreateLuaCDamage)

@@ -172,7 +172,7 @@ namespace moho
     }
     return sPointerType;
   }
-  CScrLuaMetatableFactory<CLuaConOutputHandler*> CScrLuaMetatableFactory<CLuaConOutputHandler*>::sInstance{};
+  // CScrLuaMetatableFactory<CLuaConOutputHandler*> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x00BC3B10 (FUN_00BC3B10, register_CScrLuaMetatableFactory_CLuaConOutputHandler)
@@ -273,23 +273,14 @@ void moho::CLuaConOutputHandler::Handle(const char* const text)
 /**
   * Alias of FUN_1001FDE0 (non-canonical helper lane).
  */
-moho::CScrLuaMetatableFactory<moho::CLuaConOutputHandler*>::CScrLuaMetatableFactory()
-  : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-{}
+// CScrLuaMetatableFactory<CLuaConOutputHandler*> is the primary template: one definition in every translation unit.
 
-moho::CScrLuaMetatableFactory<moho::CLuaConOutputHandler*>&
-moho::CScrLuaMetatableFactory<moho::CLuaConOutputHandler*>::Instance()
-{
-  return sInstance;
-}
+// CScrLuaMetatableFactory<CLuaConOutputHandler*> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x00420DA0 (FUN_00420DA0)
  */
-LuaPlus::LuaObject moho::CScrLuaMetatableFactory<moho::CLuaConOutputHandler*>::Create(LuaPlus::LuaState* const state)
-{
-  return SCR_CreateSimpleMetatable(state);
-}
+// CScrLuaMetatableFactory<CLuaConOutputHandler*> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x0041EA50 (FUN_0041EA50, scalar deleting destructor thunk)

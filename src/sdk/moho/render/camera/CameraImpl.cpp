@@ -389,17 +389,11 @@ namespace
 
 namespace moho
 {
-  CScrLuaMetatableFactory<CameraImpl> CScrLuaMetatableFactory<CameraImpl>::sInstance{};
+  // CScrLuaMetatableFactory<CameraImpl> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CameraImpl>& CScrLuaMetatableFactory<CameraImpl>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<CameraImpl> is the primary template: one definition in every translation unit.
 
-  LuaPlus::LuaObject CScrLuaMetatableFactory<CameraImpl>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<CameraImpl> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x007B0A90 (FUN_007B0A90, func_CreateLuaCameraImpl)

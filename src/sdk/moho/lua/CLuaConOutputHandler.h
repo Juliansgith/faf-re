@@ -90,33 +90,7 @@ namespace moho
    * VFTABLE: 0x00E017B8
    * COL:     0x00E5DD98
    */
-  template <>
-  class CScrLuaMetatableFactory<CLuaConOutputHandler*> final : public CScrLuaObjectFactory
-  {
-  public:
-    /**
-     * Address: 0x1001FDE0 (FUN_1001FDE0, MohoEngine.dll)
-     *
-     * What it does:
-     * Initializes object-factory metadata for CLuaConOutputHandler userdata.
-     */
-    CScrLuaMetatableFactory();
-
-    [[nodiscard]]
-    static CScrLuaMetatableFactory& Instance();
-
-  protected:
-    /**
-     * Address: 0x00420DA0 (FUN_00420DA0)
-     *
-     * What it does:
-     * Builds a simple metatable (`__index = self`) for handler userdata.
-     */
-    LuaPlus::LuaObject Create(LuaPlus::LuaState* state) override;
-
-  private:
-    static CScrLuaMetatableFactory sInstance;
-  };
+  // CScrLuaMetatableFactory<CLuaConOutputHandler*> is the primary template: one definition in every translation unit.
 
   /**
    * VFTABLE: 0x00E01750
