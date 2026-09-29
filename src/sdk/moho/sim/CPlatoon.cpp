@@ -2714,7 +2714,10 @@ namespace moho
       const LuaPlus::LuaObject baseCountObject = squadSpec[3];
       const int baseCount = baseCountObject.GetInteger();
 
-      const LuaPlus::LuaObject multiplierObject = squadSpec[5];
+      // The size multiplier is Lua argument 3 (`FormPlatoon(template, multiplier, [position, radius])`),
+      // as in CanFormPlatoon. It was read from squadSpec[5] -- the squad's formation string -- so every
+      // AI platoon formation raised "get as number expected but got string".
+      const LuaPlus::LuaObject multiplierObject(LuaPlus::LuaStackObject(state, 3));
       const float scaledSize = static_cast<float>(multiplierObject.GetNumber()) * static_cast<float>(baseCount);
       const int requiredSize = static_cast<int>(std::floor(scaledSize));
 
