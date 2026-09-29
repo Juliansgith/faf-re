@@ -6045,6 +6045,30 @@ namespace moho
   int cfunc_SetCommandSourceSim(lua_State* luaContext);
 
   /**
+   * Engine addition (FAF parity, section/SimGetDepositsAroundPoint.cpp): user-lane
+   * `GetDepositsAroundPoint`. The user Lua state carries no Sim pointer, so this reads
+   * `Sim::sInstance`, as FAF's `UIRegFunc` reads `g_Sim`. Deposits are static after map load.
+   */
+  int cfunc_GetDepositsAroundPointUser(lua_State* luaContext);
+
+  /** Engine addition (FAF parity): user-lane `GetDepositsAroundPoint(x, z, radius, type)`. */
+  CScrLuaInitForm* func_GetDepositsAroundPointUser_LuaFuncDef();
+
+  /**
+   * Engine addition (FAF parity, section/PathfindingTweaks.cpp): stores
+   * `luaL_optnumber(1, 50)` into `gNavPersonalPosMaxDistance`, the value FAF's hook at 0x005AF8D5
+   * substitutes for the fixed 50.0 in `CAiPathNavigator::TryAdvanceTargetPoint`. FAF's
+   * `simInit.lua` sets 9999 so navigators use personal positioning for every move order.
+   */
+  int cfunc_SetNavigatorPersonalPosMaxDistance(lua_State* luaContext);
+
+  /** Defined in ai/CAiPathNavigator.cpp (engine addition; see there). */
+  extern float gNavPersonalPosMaxDistance;
+
+  /** Engine addition (FAF parity): publishes `SetNavigatorPersonalPosMaxDistance`. */
+  CScrLuaInitForm* func_SetNavigatorPersonalPosMaxDistance_LuaFuncDef();
+
+  /**
    * Address: 0x005284D0 (FUN_005284D0, cfunc_SpecFootprints)
    *
    * lua_State *

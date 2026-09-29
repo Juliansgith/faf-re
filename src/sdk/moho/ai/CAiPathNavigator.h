@@ -12,6 +12,13 @@
 
 namespace moho
 {
+  /**
+   * Engine addition (FAF parity, FA-Binary-Patches section/PathfindingTweaks.cpp): the distance
+   * limit `CAiPathNavigator::TryAdvanceTargetPoint` applies to string-pull candidates, the binary's
+   * fixed 50.0 made settable from Lua through `SetNavigatorPersonalPosMaxDistance`.
+   */
+  extern float gNavPersonalPosMaxDistance;
+
   class CAiPathFinder;
   class Sim;
   class Unit;

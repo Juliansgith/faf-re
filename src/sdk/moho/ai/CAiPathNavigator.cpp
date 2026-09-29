@@ -26,6 +26,9 @@
 
 using namespace moho;
 
+// Engine addition (see CAiPathNavigator.h): the binary's fixed 50.0 unless Lua changes it.
+float moho::gNavPersonalPosMaxDistance = 50.0f;
+
 namespace
 {
   constexpr std::uint64_t kUnitPathFlag = 0x1000000ull;
@@ -1395,7 +1398,9 @@ bool CAiPathNavigator::TryAdvanceTargetPoint()
   std::int32_t selectedIndex = -1;
   for (std::int32_t idx = furthestCandidateIndex; idx >= firstReachableIndex; --idx) {
     const SOCellPos candidate = mPath.start[idx];
-    if (idx != firstReachableIndex && CellDistance(mCurrentPos, candidate) >= 50.0f) {
+    // FAF parity: the hook at 0x005AF8D5 loads `navPersonalPosMaxDistance` here instead of the
+    // binary's fixed 50.0 (set from Lua by SetNavigatorPersonalPosMaxDistance; FAF uses 9999).
+    if (idx != firstReachableIndex && CellDistance(mCurrentPos, candidate) >= gNavPersonalPosMaxDistance) {
       continue;
     }
 
