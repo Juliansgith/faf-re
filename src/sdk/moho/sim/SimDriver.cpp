@@ -1414,10 +1414,13 @@ void CSimDriver::ThreadRun()
           // Behind schedule: issue however many whole beats have come due, but
           // never further ahead of the executed beat than two seconds' worth.
           const float lateMilliseconds = gpg::time::CyclesToMilliseconds(now - dueAt);
-          const float lateBeats = (1.0f / millisecondsPerBeat) * lateMilliseconds;
+          // Clamped (engine fix): at +20 and above a beat is under a millisecond, so a long sim
+          // stall made this overflow `int` and the thread stopped issuing. Anything past the
+          // catch-up ceiling below is discarded anyway.
+          const float lateBeats = std::min((1.0f / millisecondsPerBeat) * lateMilliseconds, 1.0e8f);
           lastBeatToIssue = static_cast<int>(std::floor(lateBeats)) + mNextIssueBeat;
 
-          int catchUpCeiling = static_cast<int>((1.0f / millisecondsPerBeat) * 2000.0f);
+          int catchUpCeiling = static_cast<int>(std::min((1.0f / millisecondsPerBeat) * 2000.0f, 1.0e8f));
           if (catchUpCeiling > kMaxCatchUpBeats) {
             catchUpCeiling = kMaxCatchUpBeats;
           }
