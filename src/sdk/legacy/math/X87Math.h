@@ -37,6 +37,16 @@ namespace msvc8
   [[nodiscard]] float atan2f(float y, float x) noexcept;
 
   /**
+   * `sin(a) * cos(b)` and `cos(a) * cos(b)` as the binary forms them when both
+   * factors stay on the x87 stack (e.g. MotorFallDown::Update, 0x00695397):
+   * the two unrounded transcendental results are multiplied and the product is
+   * rounded to single once. Multiplying the float-rounded `sinf`/`cosf` results
+   * rounds twice and can land one float away.
+   */
+  [[nodiscard]] float SinTimesCos(float sinArg, float cosArg) noexcept;
+  [[nodiscard]] float CosTimesCos(float firstArg, float secondArg) noexcept;
+
+  /**
    * The remaining float functions go through the CRT's double routine and
    * round once, which is what the x86 CRT's own float overloads do; x64's CRT
    * has separate float implementations that disagree with them. The double

@@ -51,4 +51,46 @@ msvc8_x87_atan2f PROC
     ret
 msvc8_x87_atan2f ENDP
 
+; float msvc8_x87_sin_times_cos(float a, float b): fsin(a) * fcos(b) on the
+; unrounded results, rounded once to single (precision control forced to 24 bits
+; for the multiply; x64 threads run the x87 unit at 53).
+msvc8_x87_sin_times_cos PROC
+    movss   dword ptr [rsp+8], xmm0
+    movss   dword ptr [rsp+16], xmm1
+    fnstcw  word ptr [rsp+24]
+    mov     ax, word ptr [rsp+24]
+    and     ax, 0FCFFh
+    mov     word ptr [rsp+26], ax
+    fldcw   word ptr [rsp+26]
+    fld     dword ptr [rsp+8]
+    fsin
+    fld     dword ptr [rsp+16]
+    fcos
+    fmulp   st(1), st(0)
+    fstp    dword ptr [rsp+8]
+    fldcw   word ptr [rsp+24]
+    movss   xmm0, dword ptr [rsp+8]
+    ret
+msvc8_x87_sin_times_cos ENDP
+
+; float msvc8_x87_cos_times_cos(float a, float b): fcos(a) * fcos(b), as above.
+msvc8_x87_cos_times_cos PROC
+    movss   dword ptr [rsp+8], xmm0
+    movss   dword ptr [rsp+16], xmm1
+    fnstcw  word ptr [rsp+24]
+    mov     ax, word ptr [rsp+24]
+    and     ax, 0FCFFh
+    mov     word ptr [rsp+26], ax
+    fldcw   word ptr [rsp+26]
+    fld     dword ptr [rsp+8]
+    fcos
+    fld     dword ptr [rsp+16]
+    fcos
+    fmulp   st(1), st(0)
+    fstp    dword ptr [rsp+8]
+    fldcw   word ptr [rsp+24]
+    movss   xmm0, dword ptr [rsp+8]
+    ret
+msvc8_x87_cos_times_cos ENDP
+
 END
