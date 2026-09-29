@@ -266,6 +266,12 @@ CLuaTask::~CLuaTask()
 /**
  * Address: 0x004C9700 (FUN_004C9700, ?Execute@CLuaTask@Moho@@UAEHXZ)
  */
+namespace LuaPlus
+{
+  // Engine addition, defined in lua/LuaObject.cpp (diagnostics only).
+  lua_State* SetDiagRunningTaskThread(lua_State* thread) noexcept;
+} // namespace LuaPlus
+
 int CLuaTask::Execute()
 {
   LuaPlus::LuaState* const state = mLuaState;
@@ -277,7 +283,10 @@ int CLuaTask::Execute()
   mExecuteDestroyedFlag = &destroyedByDtor;
 
   try {
+    // Engine addition (diagnostics): lets LuaObject type errors name this coroutine's Lua call site.
+    lua_State* const previousDiagThread = LuaPlus::SetDiagRunningTaskThread(state->m_state);
     const int resumeResult = lua_resume(state->m_state, mResumeArgCount);
+    (void)LuaPlus::SetDiagRunningTaskThread(previousDiagThread);
 
     if (destroyedByDtor) {
       if (resumeResult != 0) {

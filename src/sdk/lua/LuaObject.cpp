@@ -21283,6 +21283,65 @@ const char* LuaObject::ToString() const
 	return nullptr;
 }
 
+namespace LuaPlus
+{
+	/**
+	 * Engine addition (diagnostics): the coroutine `moho::CLuaTask::Execute` is resuming on this
+	 * thread, so a type error raised inside an engine binding can name its Lua call site.
+	 */
+	thread_local lua_State* gDiagRunningTaskThread = nullptr;
+
+	lua_State* SetDiagRunningTaskThread(lua_State* thread) noexcept
+	{
+		lua_State* const previous = gDiagRunningTaskThread;
+		gDiagRunningTaskThread = thread;
+		return previous;
+	}
+} // namespace LuaPlus
+
+namespace
+{
+	/**
+	 * Engine addition (diagnostics, only with /diag): logs the C++ return addresses that led to a
+	 * LuaObject type error raised from engine code, so the caller can be symbolized from the PDB.
+	 */
+	void LogLuaTypeErrorCallers(const char* const operation, lua_State* const luaThread)
+	{
+		if (!gpg::LogDiagnosticsEnabled()) {
+			return;
+		}
+		lua_Debug probe{};
+		lua_State* const traceThread =
+			(luaThread != nullptr && lua_getstack(luaThread, 0, &probe) != 0) ? luaThread : LuaPlus::gDiagRunningTaskThread;
+		if (traceThread != nullptr) {
+			lua_State* const luaThread = traceThread;
+			char where[512] = {};
+			int used = 0;
+			lua_Debug ar{};
+			for (int level = 0; level < 6 && lua_getstack(luaThread, level, &ar) != 0; ++level) {
+				if (lua_getinfo(luaThread, "Sln", &ar) == 0) {
+					break;
+				}
+				const int wrote = std::snprintf(where + used, sizeof(where) - static_cast<std::size_t>(used), " | %s:%d %s",
+					ar.short_src, ar.currentline, ar.name != nullptr ? ar.name : "?");
+				if (wrote <= 0 || used + wrote >= static_cast<int>(sizeof(where))) {
+					break;
+				}
+				used += wrote;
+			}
+			gpg::Warnf("LUATYPEDIAG %s lua:%s", operation, where);
+		}
+		void* frames[24] = {};
+		const USHORT frameCount = ::RtlCaptureStackBackTrace(1, 24, frames, nullptr);
+		char text[24 * 11 + 96] = {};
+		int used = std::snprintf(text, sizeof(text), "LUATYPEDIAG %s callers:", operation);
+		for (USHORT i = 0; i < frameCount && used > 0 && used < static_cast<int>(sizeof(text)) - 12; ++i) {
+			used += std::snprintf(text + used, sizeof(text) - static_cast<std::size_t>(used), " %p", frames[i]);
+		}
+		gpg::Warnf("%s", text);
+	}
+} // namespace
+
 /**
  * Address: 0x00907970 (FUN_00907970, LuaPlus::LuaObject::GetNumber)
  *
@@ -21293,6 +21352,7 @@ double LuaObject::GetNumber() const
 {
 	Ensure(m_state != nullptr, "m_state");
 	if (m_object.tt != LUA_TNUMBER) {
+		LogLuaTypeErrorCallers("get as number", m_state->m_state);
 		luaG_typeerror(m_state->m_state->l_G->lstate, &m_object, "get as number");
 	}
 	return static_cast<double>(m_object.value.n);
@@ -21310,6 +21370,7 @@ float LuaObjectGetNumberAsFloat(const LuaObject* const object)
 	Ensure(object != nullptr, "object");
 	Ensure(object->m_state != nullptr, "m_state");
 	if (object->m_object.tt != LUA_TNUMBER) {
+		LogLuaTypeErrorCallers("get as number", object->m_state->m_state);
 		luaG_typeerror(object->m_state->m_state->l_G->lstate, &object->m_object, "get as number");
 	}
 	return object->m_object.value.n;
