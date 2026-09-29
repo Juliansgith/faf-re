@@ -183,6 +183,11 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
+      <!-- /EHs, not the default /EHsc: the Lua VM (lua\LuaObject.cpp) raises script errors as C++
+           exceptions from functions declared extern "C" (luaG_errormsg, luaD_call, ...). Under /EHsc
+           the optimizer may assume those never throw and drop the catch in LuaCallProtected,
+           so in Release any Lua error unwound past every protected call and killed the process. -->
+      <ExceptionHandling>SyncCThrow</ExceptionHandling>
       <AdditionalOptions>/MP4 /FS %(AdditionalOptions)</AdditionalOptions>
       <DisableSpecificWarnings>4073;4244;4273;4834;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <AdditionalIncludeDirectories>$(FafFfmpegRoot)\include;$(FafRepoRoot)src\sdk;$(FafRepoRoot)dependencies\LuaPlus_Build1081\Src\LuaPlus\include;$(FafRepoRoot)dependencies\boost_1_34_1;$(FafRepoRoot)dependencies\zlib-1.2.3\include;$(FafRepoRoot)dependencies\wxWindows-2.4.2\include;$(FafRepoRoot)dependencies\wxWindows-2.4.2\lib\mswu;$(Wm3IncludePath);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -230,6 +235,11 @@ if exist "$(FafRunDir)" if exist "$(TargetDir)$(TargetName).pdb" xcopy /D /Y /Q 
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
+      <!-- /EHs, not the default /EHsc: the Lua VM (lua\LuaObject.cpp) raises script errors as C++
+           exceptions from functions declared extern "C" (luaG_errormsg, luaD_call, ...). Under /EHsc
+           the optimizer may assume those never throw and drop the catch in LuaCallProtected,
+           so in Release any Lua error unwound past every protected call and killed the process. -->
+      <ExceptionHandling>SyncCThrow</ExceptionHandling>
       <AdditionalOptions>/MP4 /FS %(AdditionalOptions)</AdditionalOptions>
       <DisableSpecificWarnings>4073;4244;4273;4834;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <AdditionalIncludeDirectories>$(FafFfmpegRoot)\include;$(FafRepoRoot)src\sdk;$(FafRepoRoot)dependencies\LuaPlus_Build1081\Src\LuaPlus\include;$(FafRepoRoot)dependencies\boost_1_34_1;$(FafRepoRoot)dependencies\zlib-1.2.3\include;$(FafRepoRoot)dependencies\wxWindows-2.4.2\include;$(FafRepoRoot)dependencies\wxWindows-2.4.2\lib\mswu;$(Wm3IncludePath);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -290,6 +300,11 @@ if exist "$(FafRunDir)" if exist "$(TargetDir)$(TargetName).pdb" xcopy /D /Y /Q 
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
+      <!-- /EHs, not the default /EHsc: the Lua VM (lua\LuaObject.cpp) raises script errors as C++
+           exceptions from functions declared extern "C" (luaG_errormsg, luaD_call, ...). Under /EHsc
+           the optimizer may assume those never throw and drop the catch in LuaCallProtected,
+           so in Release any Lua error unwound past every protected call and killed the process. -->
+      <ExceptionHandling>SyncCThrow</ExceptionHandling>
       <AdditionalOptions>/MP4 /FS %(AdditionalOptions)</AdditionalOptions>
       <DisableSpecificWarnings>4073;4244;4273;4834;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <AdditionalIncludeDirectories>$(FafFfmpegRoot)\include;$(FafRepoRoot)src\sdk;$(FafRepoRoot)dependencies\LuaPlus_Build1081\Src\LuaPlus\include;$(FafRepoRoot)dependencies\boost_1_34_1;$(FafRepoRoot)dependencies\zlib-1.2.3\include;$(FafRepoRoot)dependencies\wxWindows-2.4.2\include;$(FafRepoRoot)dependencies\wxWindows-2.4.2\lib\mswu;$(Wm3IncludePath);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -322,6 +337,11 @@ if exist "$(FafRunDir)" if exist "$(TargetDir)$(TargetName).pdb" xcopy /D /Y /Q 
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
+      <!-- /EHs, not the default /EHsc: the Lua VM (lua\LuaObject.cpp) raises script errors as C++
+           exceptions from functions declared extern "C" (luaG_errormsg, luaD_call, ...). Under /EHsc
+           the optimizer may assume those never throw and drop the catch in LuaCallProtected,
+           so in Release any Lua error unwound past every protected call and killed the process. -->
+      <ExceptionHandling>SyncCThrow</ExceptionHandling>
       <AdditionalOptions>/MP4 /FS %(AdditionalOptions)</AdditionalOptions>
       <DisableSpecificWarnings>4073;4244;4273;4834;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <AdditionalIncludeDirectories>$(FafFfmpegRoot)\include;$(FafRepoRoot)src\sdk;$(FafRepoRoot)dependencies\LuaPlus_Build1081\Src\LuaPlus\include;$(FafRepoRoot)dependencies\boost_1_34_1;$(FafRepoRoot)dependencies\zlib-1.2.3\include;$(FafRepoRoot)dependencies\wxWindows-2.4.2\include;$(FafRepoRoot)dependencies\wxWindows-2.4.2\lib\mswu;$(Wm3IncludePath);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
