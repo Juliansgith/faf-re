@@ -1588,23 +1588,15 @@ namespace moho
 
     CAiReconDBImpl* const reconDb = brain->mArmy->GetReconDB();
 
-    const gpg::Rect2f queryRect{
-      position.x - dist,
-      position.z - dist,
-      position.x + dist,
-      position.z + dist
-    };
-    CollisionDBRect collisionRect{};
-    (void)func_Rect2fToInt16(&collisionRect, queryRect);
+    // 0x0057B343: func_EntitiesAroundPoint, which range-filters the gathered cells on XZ
+    // distance. Gathering the grid cells of the +-dist square without that filter (as the
+    // recovery did) returned units well outside the radius -- e.g. FAF's GridPresence then
+    // counted a factory 8.5 units from a mass point as within 6 of it.
+    gpg::core::FastVectorN<CollisionResult, 10> gatheredHits{};
+    EntitiesAroundPoint(gatheredHits, dist, *brain->mSim->mOGrid, ENTITYTYPE_Unit, position);
 
-    gpg::core::FastVectorN<Entity*, 20> gatheredEntities{};
-    (void)brain->mSim->mOGrid->mEntityOccupationManager.GatherUnmarkedEntities(
-      gatheredEntities,
-      collisionRect,
-      ENTITYTYPE_Unit
-    );
-
-    for (Entity* const candidateEntity : gatheredEntities) {
+    for (const CollisionResult& hit : gatheredHits) {
+      Entity* const candidateEntity = hit.sourceEntity;
       if (candidateEntity == nullptr || candidateEntity->mVarDat.mIsDead != 0u || candidateEntity->DestroyQueuedFlag != 0u) {
         continue;
       }
