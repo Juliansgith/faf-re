@@ -85,10 +85,11 @@ namespace moho
   CScrLuaInitForm* func_UnitAddBuildRestriction_LuaFuncDef();
 
   /**
-   * Address: 0x008BAD80 (FUN_008BAD80, func_SetAutoMode_LuaFuncDef)
+   * Address: 0x006C8000 (FUN_006C8000, func_UnitSetAutoMode_LuaFuncDef)
    *
    * What it does:
-   * Publishes the global user-Lua binder for `SetAutoMode`.
+   * Publishes the sim-Lua `Unit:SetAutoMode(enabled)` binder. (The user-lane global
+   * `SetAutoMode` at 0x008BAD80 is `func_SetAutoMode_LuaFuncDef` in sim/Sim.h.)
    */
   CScrLuaInitForm* func_UnitSetAutoMode_LuaFuncDef();
   CScrLuaInitForm* func_UnitGetFireState_LuaFuncDef();
