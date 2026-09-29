@@ -7855,7 +7855,18 @@ namespace moho
 
     Wm3::Quaternionf tiltDelta{};
     (void)BuildTiltShortestArcDelta(surfaceNormal, &tiltDelta, currentUp);
-    *orientation = MultiplyQuat(tiltDelta, oldOrientation);
+
+    // tiltDelta * oldOrientation, each lane summed in the binary's order
+    // (0x0050B8DA-0x0050B9C4); MultiplyQuat associates the x and z lanes
+    // differently, which moves their last bit.
+    const Wm3::Quaternionf& d = tiltDelta;
+    const Wm3::Quaternionf& o = oldOrientation;
+    Wm3::Quaternionf tilted{};
+    tilted.w = (((o.w * d.w) - (o.x * d.x)) - (o.y * d.y)) - (o.z * d.z);
+    tilted.x = (((o.z * d.y) + (o.x * d.w)) + (o.w * d.x)) - (o.y * d.z);
+    tilted.y = (((o.w * d.y) + (o.x * d.z)) + (o.y * d.w)) - (o.z * d.x);
+    tilted.z = (((o.w * d.z) + (o.z * d.w)) + (o.y * d.x)) - (o.x * d.y);
+    *orientation = tilted;
   }
 
   /**
