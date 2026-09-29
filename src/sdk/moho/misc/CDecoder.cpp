@@ -1,4 +1,5 @@
 #include "CDecoder.h"
+#include "gpg/core/utils/Logging.h"
 
 #include <cstdio>
 #include <cstring>
@@ -436,7 +437,7 @@ namespace moho
     {
       static int sProbeIssue = 0;
       if ((++sProbeIssue % 10) == 1) {
-        if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+        if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
           std::fprintf(
             sink,
             "[BEATPIPE] issueCmd n=%d bits=%u type=%u cmdId=0x%08x target=0x%08x\n",
@@ -604,7 +605,7 @@ namespace moho
     {
       static int sProbeDbg = 0;
       if ((++sProbeDbg % 10) == 1) {
-        if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+        if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
           std::fprintf(
             sink,
             "[BEATPIPE] debugCmd n=%d focus=%u cmd=%.80s\n",

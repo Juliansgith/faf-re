@@ -1,4 +1,5 @@
 #include <algorithm>
+#include "gpg/core/utils/Logging.h"
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -247,7 +248,7 @@ namespace moho
         Unit* const probeUnit = mUnit.GetObjectPtr();
         CAniPoseBone* const probeBone = ResolveWatchedThrustBone(this);
         const char* const probeUnitName = (probeUnit != nullptr) ? "unit" : "null";
-        std::FILE* const sink = std::fopen("faf_diag.log", "a");
+        std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr);
         if (sink != nullptr) {
           std::fprintf(
             sink,
@@ -328,7 +329,7 @@ namespace moho
       ++sProbeAimSeen;
       if (sProbeAim < 30 && (sProbeAimSeen % 20) == 0) {
         ++sProbeAim;
-        std::FILE* const sink = std::fopen("faf_diag.log", "a");
+        std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr);
         if (sink != nullptr) {
           std::fprintf(
             sink,
@@ -375,7 +376,7 @@ namespace moho
                                            (composite.orient_.y * composite.orient_.y)));
         const float fwdX = (2.0f * ((composite.orient_.x * composite.orient_.z) +
                                      (composite.orient_.w * composite.orient_.y)));
-        std::FILE* const sink = std::fopen("faf_diag.log", "a");
+        std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr);
         if (sink != nullptr) {
           std::fprintf(
             sink,

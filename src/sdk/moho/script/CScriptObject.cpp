@@ -805,7 +805,7 @@ void CScriptObject::LogScriptWarning(CScriptObject* obj, const char* which, cons
   {
     static DiagnosticBudget sScriptErrorBudget;
     if (sScriptErrorBudget.Take(200)) {
-      if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+      if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
         std::fprintf(
           sink, "[LUADIAG] Error running %s script in %s: %s\n",
           which ? which : "<unknown>", where, message ? message : ""

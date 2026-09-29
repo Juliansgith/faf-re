@@ -589,6 +589,22 @@ namespace gpg
     void Debugf(const char* fmt, ...);
 
     /**
+     * Engine addition, not recovered from the binary.
+     *
+     * The recovery tree still carries diagnostic probes that log through Logf/Warnf/Debugf with a
+     * bracketed upper-case tag at the start of the format string (`[STEERDIAG] ...`,
+     * `[MOTDIAG] ...`). Some fire per unit per tick -- hundreds of thousands of lines a minute -- so
+     * they are dropped before formatting unless the `/diag` command-line switch is present.
+     */
+    [[nodiscard]] bool LogDiagnosticsEnabled() noexcept;
+
+    /** Overrides the `/diag` switch at run time (engine addition). */
+    void SetLogDiagnosticsEnabled(bool enabled) noexcept;
+
+    /** True when `text` starts with a probe tag: `[`, three or more of A-Z 0-9 _, then `]`. */
+    [[nodiscard]] bool IsDiagnosticProbeText(const char* text) noexcept;
+
+    /**
      * Address: 0x008E4A40 (?EnableLogHistory@gpg@@YAXH@Z)
      *
      * What it does:

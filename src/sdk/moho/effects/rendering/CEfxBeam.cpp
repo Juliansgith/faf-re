@@ -33,7 +33,7 @@ namespace
 {
   void DiagLine(const char* const fmt, ...)
   {
-    std::FILE* const sink = std::fopen("faf_diag.log", "a");
+    std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr);
     if (sink == nullptr) {
       return;
     }

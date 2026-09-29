@@ -11679,7 +11679,7 @@ int moho::cfunc_CreateUnitHPRL(LuaPlus::LuaState* const state)
   {
     static int sProbeSpawn = 0;
     if ((++sProbeSpawn % 1) == 0) {
-      if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+      if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
         std::fprintf(
           sink,
           "[SCENSPAWN] n=%d bp=%s entId=0x%08x\n",

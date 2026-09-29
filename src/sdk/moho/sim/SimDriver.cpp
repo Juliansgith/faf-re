@@ -1,4 +1,5 @@
 #include "SimDriver.h"
+#include "gpg/core/utils/Logging.h"
 #include "legacy/math/X87Math.h"
 #include "platform/X87Precision.h"
 
@@ -830,7 +831,7 @@ void CSimDriver::FinalizeSyncDispatchLocked(boost::mutex::scoped_lock& lock)
   {
     static int sProbeSync = 0;
     if ((++sProbeSync % 50) == 0) {
-      if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+      if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
         std::fprintf(
           sink,
           "[BEATPIPE] syncProduced cur=%d syncBeat=%d pausedBy=%d gameOver=%d\n",
@@ -883,7 +884,7 @@ void CSimDriver::ExecuteDispatchStepLocked(boost::mutex::scoped_lock& lock)
   {
     static int sProbeStep = 0;
     if ((++sProbeStep % 50) == 1) {
-      if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+      if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
         std::fprintf(sink, "[BEATPIPE] dispatchStep n=%d beat=%d\n", sProbeStep, static_cast<int>(beatToDispatch));
         std::fclose(sink);
       }
@@ -1230,7 +1231,7 @@ void CSimDriver::ThreadRun()
         sLastProgressBeat = progressBeat;
         sLastProgressCycles = nowCycles;
       } else if (
-        sDumpsTaken < 3 && mSimThread != nullptr
+        gpg::LogDiagnosticsEnabled() && sDumpsTaken < 3 && mSimThread != nullptr
         && gpg::time::CyclesToMilliseconds(nowCycles - sLastProgressCycles) > 15000.0f
       ) {
         ++sDumpsTaken;
@@ -1260,7 +1261,7 @@ void CSimDriver::ThreadRun()
 #endif
             frame.AddrStack.Mode = AddrModeFlat;
             frame.AddrFrame.Mode = AddrModeFlat;
-            if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+            if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
               std::fprintf(
                 sink,
                 "[SIMSTALL] dispatchBeat=%d state=%d eip=0x%08llx\n",
@@ -1326,7 +1327,7 @@ void CSimDriver::ThreadRun()
         int availableBeat = 0;
         mClientManager->GetPartiallyQueuedBeat(partiallyQueuedBeat);
         mClientManager->GetAvailableBeat(availableBeat);
-        if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+        if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
           std::fprintf(
             sink,
             "[BEATPIPE] issueThread lastSync=%lld outstanding=%u syncQ=%u nextIssue=%d lastDeq=%d "
@@ -1652,7 +1653,7 @@ void CSimDriver::PromoteToDispatchingWhenBeatAvailable(const int beatQuerySeed)
   {
     static int sProbePromote = 0;
     if ((++sProbePromote % 50) == 0 || willPromote) {
-      if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+      if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
         std::fprintf(
           sink,
           "[BEATPIPE] promote n=%d avail=%d dispatchBeat=%d promote=%d\n",

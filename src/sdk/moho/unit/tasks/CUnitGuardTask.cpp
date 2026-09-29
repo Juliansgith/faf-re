@@ -1,4 +1,5 @@
 #include "moho/unit/tasks/CUnitGuardTask.h"
+#include "gpg/core/utils/Logging.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1607,7 +1608,7 @@ namespace moho
       {
         static int sProbeDispatch = 0;
         if ((++sProbeDispatch % 10) == 1) {
-          if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+          if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
             std::fprintf(
               sink,
               "[SILODISPATCH] n=%d owner=%p target=%p siloBuild=%d state=%d repair=%d req=%p\n",

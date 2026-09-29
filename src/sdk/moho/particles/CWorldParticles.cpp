@@ -1,4 +1,5 @@
 #include "moho/particles/CWorldParticles.h"
+#include "gpg/core/utils/Logging.h"
 
 #include <cstring>
 #include <cstdlib>
@@ -455,7 +456,7 @@ namespace
       static int sProbeBindSeen = 0;
       ++sProbeBindSeen;
       if ((sProbeBindSeen % 1000) == 0) {
-        std::FILE* const sink = std::fopen("faf_diag.log", "a");
+        std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr);
         if (sink != nullptr) {
           std::fprintf(
             sink,
