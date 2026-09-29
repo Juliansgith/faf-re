@@ -1366,6 +1366,17 @@ bool CScApp::CreateAppFrame(
     frame = nullptr;
     supcomFrame = new WSupComFrame(title.c_str(), position, primarySize, frameStyle);
 
+    // [AGENT] /agentbackground: training games run beside the user's own programs, so their window must
+    // never cover anything or take the focus. Before it is first shown, park it off every screen and make
+    // it non-activatable (the agent minimizes it once the game runs).
+    if (moho::CFG_GetArgOption("/agentbackground", 0, nullptr)) {
+      const HWND hwnd = reinterpret_cast<HWND>(supcomFrame->GetHandle());
+      ::SetWindowLongW(hwnd, GWL_EXSTYLE, ::GetWindowLongW(hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
+      ::SetWindowPos(
+        hwnd, HWND_BOTTOM, -20000, -20000, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER
+      );
+    }
+
     if (primaryHead.mWindowed) {
       supcomFrame->Show(false);
     } else {
