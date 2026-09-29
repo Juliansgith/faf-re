@@ -51,7 +51,7 @@ namespace moho
   // has it; this file only registers them
   // (register_ManyToOne{Broadcaster,Listener}_EProjectileImpactEvent_TypeInfo,
   // 0x00BD64C0 and 0x00BD64E0).
-  CScrLuaMetatableFactory<Projectile> CScrLuaMetatableFactory<Projectile>::sInstance{};
+  // CScrLuaMetatableFactory<Projectile> is the primary template: one definition in every translation unit.
 } // namespace moho
 
 namespace
@@ -565,15 +565,9 @@ namespace moho
   /**
    * Address: 0x0067FFE0 (FUN_0067FFE0, Moho::CScrLuaMetatableFactory<Moho::Projectile>::Create)
    */
-  LuaPlus::LuaObject CScrLuaMetatableFactory<Projectile>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<Projectile> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<Projectile>& CScrLuaMetatableFactory<Projectile>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<Projectile> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x0067F0E0 (FUN_0067F0E0, func_GetProjectileFactory)

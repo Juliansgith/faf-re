@@ -458,7 +458,7 @@ namespace moho
   gpg::RType* CEconRequest::sType = nullptr;
   gpg::RType* CEconomyEvent::sType = nullptr;
   gpg::RType* CEconomyEvent::sPointerType = nullptr;
-  CScrLuaMetatableFactory<CEconomyEvent> CScrLuaMetatableFactory<CEconomyEvent>::sInstance{};
+  // CScrLuaMetatableFactory<CEconomyEvent> is the primary template: one definition in every translation unit.
 
   namespace
   {
@@ -751,22 +751,14 @@ bool moho::CEconomyEvent::IsDone() const noexcept
 /**
   * Alias of FUN_1001FDE0 (non-canonical helper lane).
  */
-moho::CScrLuaMetatableFactory<moho::CEconomyEvent>::CScrLuaMetatableFactory()
-  : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-{}
+// CScrLuaMetatableFactory<CEconomyEvent> is the primary template: one definition in every translation unit.
 
-moho::CScrLuaMetatableFactory<moho::CEconomyEvent>& moho::CScrLuaMetatableFactory<moho::CEconomyEvent>::Instance()
-{
-  return sInstance;
-}
+// CScrLuaMetatableFactory<CEconomyEvent> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x00775B80 (FUN_00775B80)
  */
-LuaPlus::LuaObject moho::CScrLuaMetatableFactory<moho::CEconomyEvent>::Create(LuaPlus::LuaState* const state)
-{
-  return SCR_CreateSimpleMetatable(state);
-}
+// CScrLuaMetatableFactory<CEconomyEvent> is the primary template: one definition in every translation unit.
 
 namespace
 {

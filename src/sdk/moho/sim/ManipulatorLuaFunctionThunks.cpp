@@ -72,89 +72,17 @@ namespace moho
   int cfunc_CThrustManipulatorSetThrustingParam(lua_State* luaContext);
   int cfunc_CThrustManipulatorSetThrustingParamL(LuaPlus::LuaState* state);
 
-  template <>
-  class CScrLuaMetatableFactory<CBoneEntityManipulator> final : public CScrLuaObjectFactory
-  {
-  public:
-    static CScrLuaMetatableFactory& Instance();
+  // CScrLuaMetatableFactory<CBoneEntityManipulator> is the primary template: one definition in every translation unit.
 
-  protected:
-    LuaPlus::LuaObject Create(LuaPlus::LuaState* state) override;
+  // CScrLuaMetatableFactory<CBuilderArmManipulator> is the primary template: one definition in every translation unit.
 
-  private:
-    CScrLuaMetatableFactory();
-    static CScrLuaMetatableFactory sInstance;
-  };
+  // CScrLuaMetatableFactory<CFootPlantManipulator> is the primary template: one definition in every translation unit.
 
-  template <>
-  class CScrLuaMetatableFactory<CBuilderArmManipulator> final : public CScrLuaObjectFactory
-  {
-  public:
-    static CScrLuaMetatableFactory& Instance();
+  // CScrLuaMetatableFactory<Entity> is the primary template: one definition in every translation unit.
 
-  protected:
-    LuaPlus::LuaObject Create(LuaPlus::LuaState* state) override;
+  // CScrLuaMetatableFactory<CRotateManipulator> is the primary template: one definition in every translation unit.
 
-  private:
-    CScrLuaMetatableFactory();
-    static CScrLuaMetatableFactory sInstance;
-  };
-
-  template <>
-  class CScrLuaMetatableFactory<CFootPlantManipulator> final : public CScrLuaObjectFactory
-  {
-  public:
-    static CScrLuaMetatableFactory& Instance();
-
-  protected:
-    LuaPlus::LuaObject Create(LuaPlus::LuaState* state) override;
-
-  private:
-    CScrLuaMetatableFactory();
-    static CScrLuaMetatableFactory sInstance;
-  };
-
-  template <>
-  class CScrLuaMetatableFactory<Entity> final : public CScrLuaObjectFactory
-  {
-  public:
-    static CScrLuaMetatableFactory& Instance();
-
-  protected:
-    LuaPlus::LuaObject Create(LuaPlus::LuaState* state) override;
-
-  private:
-    CScrLuaMetatableFactory();
-    static CScrLuaMetatableFactory sInstance;
-  };
-
-  template <>
-  class CScrLuaMetatableFactory<CRotateManipulator> final : public CScrLuaObjectFactory
-  {
-  public:
-    static CScrLuaMetatableFactory& Instance();
-
-  protected:
-    LuaPlus::LuaObject Create(LuaPlus::LuaState* state) override;
-
-  private:
-    CScrLuaMetatableFactory();
-    static CScrLuaMetatableFactory sInstance;
-  };
-
-  template <>
-  class CScrLuaMetatableFactory<CThrustManipulator> final : public CScrLuaObjectFactory
-  {
-  public:
-    static CScrLuaMetatableFactory& Instance();
-
-  protected:
-    LuaPlus::LuaObject Create(LuaPlus::LuaState* state) override;
-
-  private:
-    CScrLuaMetatableFactory();
-    static CScrLuaMetatableFactory sInstance;
-  };
+  // CScrLuaMetatableFactory<CThrustManipulator> is the primary template: one definition in every translation unit.
 
   static_assert(
     sizeof(CScrLuaMetatableFactory<CBoneEntityManipulator>) == 0x08,
@@ -178,21 +106,16 @@ namespace moho
     "CScrLuaMetatableFactory<CThrustManipulator> size must be 0x8"
   );
 
-  CScrLuaMetatableFactory<CBoneEntityManipulator> CScrLuaMetatableFactory<CBoneEntityManipulator>::sInstance{};
-  CScrLuaMetatableFactory<CBuilderArmManipulator> CScrLuaMetatableFactory<CBuilderArmManipulator>::sInstance{};
-  CScrLuaMetatableFactory<CFootPlantManipulator> CScrLuaMetatableFactory<CFootPlantManipulator>::sInstance{};
-  CScrLuaMetatableFactory<Entity> CScrLuaMetatableFactory<Entity>::sInstance{};
-  CScrLuaMetatableFactory<CRotateManipulator> CScrLuaMetatableFactory<CRotateManipulator>::sInstance{};
-  CScrLuaMetatableFactory<CThrustManipulator> CScrLuaMetatableFactory<CThrustManipulator>::sInstance{};
+  // CScrLuaMetatableFactory<CBoneEntityManipulator> is the primary template: one definition in every translation unit.
+  // CScrLuaMetatableFactory<CBuilderArmManipulator> is the primary template: one definition in every translation unit.
+  // CScrLuaMetatableFactory<CFootPlantManipulator> is the primary template: one definition in every translation unit.
+  // CScrLuaMetatableFactory<Entity> is the primary template: one definition in every translation unit.
+  // CScrLuaMetatableFactory<CRotateManipulator> is the primary template: one definition in every translation unit.
+  // CScrLuaMetatableFactory<CThrustManipulator> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CBoneEntityManipulator>::CScrLuaMetatableFactory()
-    : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-  {}
+  // CScrLuaMetatableFactory<CBoneEntityManipulator> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CBoneEntityManipulator>& CScrLuaMetatableFactory<CBoneEntityManipulator>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<CBoneEntityManipulator> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x00635490 (FUN_00635490)
@@ -210,80 +133,37 @@ namespace moho
     return &instance;
   }
 
-  LuaPlus::LuaObject CScrLuaMetatableFactory<CBoneEntityManipulator>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<CBoneEntityManipulator> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CBuilderArmManipulator>::CScrLuaMetatableFactory()
-    : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-  {}
+  // CScrLuaMetatableFactory<CBuilderArmManipulator> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CBuilderArmManipulator>& CScrLuaMetatableFactory<CBuilderArmManipulator>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<CBuilderArmManipulator> is the primary template: one definition in every translation unit.
 
-  LuaPlus::LuaObject CScrLuaMetatableFactory<CBuilderArmManipulator>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<CBuilderArmManipulator> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CFootPlantManipulator>::CScrLuaMetatableFactory()
-    : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-  {}
+  // CScrLuaMetatableFactory<CFootPlantManipulator> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CFootPlantManipulator>& CScrLuaMetatableFactory<CFootPlantManipulator>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<CFootPlantManipulator> is the primary template: one definition in every translation unit.
 
-  LuaPlus::LuaObject CScrLuaMetatableFactory<CFootPlantManipulator>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<CFootPlantManipulator> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<Entity>::CScrLuaMetatableFactory()
-    : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-  {}
+  // CScrLuaMetatableFactory<Entity> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<Entity>& CScrLuaMetatableFactory<Entity>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<Entity> is the primary template: one definition in every translation unit.
 
-  LuaPlus::LuaObject CScrLuaMetatableFactory<Entity>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<Entity> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CRotateManipulator>::CScrLuaMetatableFactory()
-    : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-  {}
+  // CScrLuaMetatableFactory<CRotateManipulator> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CRotateManipulator>& CScrLuaMetatableFactory<CRotateManipulator>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<CRotateManipulator> is the primary template: one definition in every translation unit.
 
-  LuaPlus::LuaObject CScrLuaMetatableFactory<CRotateManipulator>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<CRotateManipulator> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CThrustManipulator>::CScrLuaMetatableFactory()
-    : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-  {}
+  // CScrLuaMetatableFactory<CThrustManipulator> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CThrustManipulator>& CScrLuaMetatableFactory<CThrustManipulator>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<CThrustManipulator> is the primary template: one definition in every translation unit.
 
-  LuaPlus::LuaObject CScrLuaMetatableFactory<CThrustManipulator>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<CThrustManipulator> is the primary template: one definition in every translation unit.
 
   LuaPlus::LuaObject CreateRotateManipulatorLuaMetatable(LuaPlus::LuaState* const state)
   {

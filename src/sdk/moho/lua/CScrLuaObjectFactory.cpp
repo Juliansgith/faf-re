@@ -415,7 +415,7 @@ namespace
 namespace moho
 {
   int32_t CScrLuaObjectFactory::sNumIds = 0;
-  CScrLuaMetatableFactory<CScriptObject*> CScrLuaMetatableFactory<CScriptObject*>::sInstance{};
+  // CScrLuaMetatableFactory<CScriptObject*> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x00BC60D0 (FUN_00BC60D0)
@@ -1377,24 +1377,16 @@ namespace moho
     return value;
   }
 
-  CScrLuaMetatableFactory<CScriptObject*>& CScrLuaMetatableFactory<CScriptObject*>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<CScriptObject*> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x100BA690
    * (?Create@?$CScrLuaMetatableFactory@PAVCScriptObject@Moho@@@Moho@@MAE?AVLuaObject@LuaPlus@@PAVLuaState@4@@Z)
    */
-  LuaPlus::LuaObject CScrLuaMetatableFactory<CScriptObject*>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<CScriptObject*> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x100BA630 (FUN_100BA630, ??0?$CScrLuaMetatableFactory@PAVCScriptObject@Moho@@@Moho@@QAE@XZ)
    */
-  CScrLuaMetatableFactory<CScriptObject*>::CScrLuaMetatableFactory()
-    : CScrLuaObjectFactory()
-  {}
+  // CScrLuaMetatableFactory<CScriptObject*> is the primary template: one definition in every translation unit.
 } // namespace moho

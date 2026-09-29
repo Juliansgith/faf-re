@@ -872,20 +872,7 @@ namespace moho
    */
   int cfunc_UnitGetStatL(LuaPlus::LuaState* state);
 
-  template <>
-  class CScrLuaMetatableFactory<Unit> final : public CScrLuaObjectFactory
-  {
-  public:
-    CScrLuaMetatableFactory();
-
-    [[nodiscard]] static CScrLuaMetatableFactory& Instance();
-
-  protected:
-    LuaPlus::LuaObject Create(LuaPlus::LuaState* state) override;
-
-  private:
-    static CScrLuaMetatableFactory sInstance;
-  };
+  // CScrLuaMetatableFactory<Unit> is the primary template: one definition in every translation unit.
 
   static_assert(sizeof(CScrLuaMetatableFactory<Unit>) == 0x08, "CScrLuaMetatableFactory<Unit> size must be 0x08");
 } // namespace moho
@@ -2277,21 +2264,13 @@ moho::Unit* moho::SCR_GetUnitOptional(const LuaPlus::LuaObject& unitObject)
   return static_cast<Unit*>(unitRef.mObj);
 }
 
-CScrLuaMetatableFactory<Unit> CScrLuaMetatableFactory<Unit>::sInstance{};
+// CScrLuaMetatableFactory<Unit> is the primary template: one definition in every translation unit.
 
-CScrLuaMetatableFactory<Unit>::CScrLuaMetatableFactory()
-  : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-{}
+// CScrLuaMetatableFactory<Unit> is the primary template: one definition in every translation unit.
 
-CScrLuaMetatableFactory<Unit>& CScrLuaMetatableFactory<Unit>::Instance()
-{
-  return sInstance;
-}
+// CScrLuaMetatableFactory<Unit> is the primary template: one definition in every translation unit.
 
-LuaPlus::LuaObject CScrLuaMetatableFactory<Unit>::Create(LuaPlus::LuaState* const state)
-{
-  return SCR_CreateSimpleMetatable(state);
-}
+// CScrLuaMetatableFactory<Unit> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x0067F080 (FUN_0067F080, func_GetUnitFactory)

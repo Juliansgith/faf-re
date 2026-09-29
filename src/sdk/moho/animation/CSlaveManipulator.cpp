@@ -250,7 +250,7 @@ namespace
 namespace moho
 {
   gpg::RType* CSlaveManipulator::sType = nullptr;
-  CScrLuaMetatableFactory<CSlaveManipulator> CScrLuaMetatableFactory<CSlaveManipulator>::sInstance{};
+  // CScrLuaMetatableFactory<CSlaveManipulator> is the primary template: one definition in every translation unit.
 } // namespace moho
 
 /**
@@ -259,15 +259,9 @@ namespace moho
  * What it does:
  * Stores one metatable-factory index used by `CScrLuaObjectFactory::Get`.
  */
-moho::CScrLuaMetatableFactory<moho::CSlaveManipulator>::CScrLuaMetatableFactory()
-  : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-{}
+// CScrLuaMetatableFactory<CSlaveManipulator> is the primary template: one definition in every translation unit.
 
-moho::CScrLuaMetatableFactory<moho::CSlaveManipulator>&
-moho::CScrLuaMetatableFactory<moho::CSlaveManipulator>::Instance()
-{
-  return sInstance;
-}
+// CScrLuaMetatableFactory<CSlaveManipulator> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x00646610 (FUN_00646610, ?Create@?$CScrLuaMetatableFactory@VCSlaveManipulator@Moho@@@Moho@@MAE?AVLuaObject@LuaPlus@@PAVLuaState@4@@Z)
@@ -275,10 +269,7 @@ moho::CScrLuaMetatableFactory<moho::CSlaveManipulator>::Instance()
  * What it does:
  * Creates the default metatable used by `CSlaveManipulator` Lua userdata.
  */
-LuaPlus::LuaObject moho::CScrLuaMetatableFactory<moho::CSlaveManipulator>::Create(LuaPlus::LuaState* const state)
-{
-  return SCR_CreateSimpleMetatable(state);
-}
+// CScrLuaMetatableFactory<CSlaveManipulator> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x00645F80 (FUN_00645F80, ??0CSlaveManipulator@Moho@@QAE@XZ)

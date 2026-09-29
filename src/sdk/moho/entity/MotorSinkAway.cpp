@@ -197,12 +197,9 @@ namespace
 namespace moho
 {
   gpg::RType* MotorSinkAway::sType = nullptr;
-  CScrLuaMetatableFactory<MotorSinkAway> CScrLuaMetatableFactory<MotorSinkAway>::sInstance{};
+  // CScrLuaMetatableFactory<MotorSinkAway> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<MotorSinkAway>& CScrLuaMetatableFactory<MotorSinkAway>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<MotorSinkAway> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x006971D0 (FUN_006971D0)
@@ -221,10 +218,7 @@ namespace moho
   /**
    * Address: 0x00696FD0 (FUN_00696FD0, Moho::CScrLuaMetatableFactory<Moho::MotorSinkAway>::Create)
    */
-  LuaPlus::LuaObject CScrLuaMetatableFactory<MotorSinkAway>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<MotorSinkAway> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x00696500 (FUN_00696500, default ctor)

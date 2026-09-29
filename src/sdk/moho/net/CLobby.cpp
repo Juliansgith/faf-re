@@ -453,19 +453,11 @@ namespace
 
 namespace moho
 {
-  CScrLuaMetatableFactory<CLobby> CScrLuaMetatableFactory<CLobby>::sInstance{};
+  // CScrLuaMetatableFactory<CLobby> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CLobby>& CScrLuaMetatableFactory<CLobby>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<CLobby> is the primary template: one definition in every translation unit.
 
-  LuaPlus::LuaObject CScrLuaMetatableFactory<CLobby>::Create(
-    LuaPlus::LuaState* const state
-  )
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<CLobby> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x00BDFFB0 (FUN_00BDFFB0, register_CScrLuaMetatableFactory_CLobby)

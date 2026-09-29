@@ -341,32 +341,7 @@ namespace moho
     CScrLuaMetatableFactory() = default;
   };
 
-  template <>
-  class CScrLuaMetatableFactory<CScriptObject*> final : public CScrLuaObjectFactory
-  {
-  public:
-    /**
-     * Returns the process-global metatable factory instance.
-     */
-    static CScrLuaMetatableFactory& Instance();
-
-  protected:
-    /**
-     * Address: 0x100BA690
-     * (?Create@?$CScrLuaMetatableFactory@PAVCScriptObject@Moho@@@Moho@@MAE?AVLuaObject@LuaPlus@@PAVLuaState@4@@Z)
-     */
-    LuaPlus::LuaObject Create(LuaPlus::LuaState* state) override;
-
-  private:
-    /**
-     * Address: 0x100BA630 (FUN_100BA630, ??0?$CScrLuaMetatableFactory@PAVCScriptObject@Moho@@@Moho@@QAE@XZ)
-     *
-     * What it does:
-     * Constructs the CScriptObject metatable factory and assigns its cache index.
-     */
-    CScrLuaMetatableFactory();
-    static CScrLuaMetatableFactory sInstance;
-  };
+  // CScrLuaMetatableFactory<CScriptObject*> is the primary template: one definition in every translation unit.
   static_assert(
     sizeof(CScrLuaMetatableFactory<CScriptObject*>) == 0x8, "CScrLuaMetatableFactory<CScriptObject*> must be 0x8"
   );

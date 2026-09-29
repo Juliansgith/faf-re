@@ -53,20 +53,7 @@ using namespace moho;
 
 namespace moho
 {
-  template <>
-  class CScrLuaMetatableFactory<UserUnit> final : public CScrLuaObjectFactory
-  {
-  public:
-    CScrLuaMetatableFactory();
-
-    [[nodiscard]] static CScrLuaMetatableFactory& Instance();
-
-  protected:
-    LuaPlus::LuaObject Create(LuaPlus::LuaState* state) override;
-
-  private:
-    static CScrLuaMetatableFactory sInstance;
-  };
+  // CScrLuaMetatableFactory<UserUnit> is the primary template: one definition in every translation unit.
 
   static_assert(sizeof(CScrLuaMetatableFactory<UserUnit>) == 0x08, "CScrLuaMetatableFactory<UserUnit> size must be 0x08");
 } // namespace moho
@@ -1498,16 +1485,11 @@ namespace
   }
 } // namespace
 
-CScrLuaMetatableFactory<UserUnit> CScrLuaMetatableFactory<UserUnit>::sInstance{};
+// CScrLuaMetatableFactory<UserUnit> is the primary template: one definition in every translation unit.
 
-CScrLuaMetatableFactory<UserUnit>::CScrLuaMetatableFactory()
-  : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-{}
+// CScrLuaMetatableFactory<UserUnit> is the primary template: one definition in every translation unit.
 
-CScrLuaMetatableFactory<UserUnit>& CScrLuaMetatableFactory<UserUnit>::Instance()
-{
-  return sInstance;
-}
+// CScrLuaMetatableFactory<UserUnit> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x008C63B0 (FUN_008C63B0)
@@ -1842,10 +1824,7 @@ namespace moho
  * What it does:
  * Builds the simple Lua metatable used for `UserUnit` userdata bindings.
  */
-LuaPlus::LuaObject CScrLuaMetatableFactory<UserUnit>::Create(LuaPlus::LuaState* const state)
-{
-  return SCR_CreateSimpleMetatable(state);
-}
+// CScrLuaMetatableFactory<UserUnit> is the primary template: one definition in every translation unit.
 
 namespace
 {

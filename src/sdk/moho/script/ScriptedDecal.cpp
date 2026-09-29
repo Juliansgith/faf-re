@@ -29,20 +29,7 @@ using namespace moho;
 
 namespace moho
 {
-  template <>
-  class CScrLuaMetatableFactory<ScriptedDecal> final : public CScrLuaObjectFactory
-  {
-  public:
-    CScrLuaMetatableFactory();
-
-    [[nodiscard]] static CScrLuaMetatableFactory& Instance();
-
-  protected:
-    LuaPlus::LuaObject Create(LuaPlus::LuaState* state) override;
-
-  private:
-    static CScrLuaMetatableFactory sInstance;
-  };
+  // CScrLuaMetatableFactory<ScriptedDecal> is the primary template: one definition in every translation unit.
 
   static_assert(sizeof(CScrLuaMetatableFactory<ScriptedDecal>) == 0x08, "CScrLuaMetatableFactory<ScriptedDecal> size must be 0x08");
 } // namespace moho
@@ -116,21 +103,13 @@ namespace
 
 } // namespace
 
-CScrLuaMetatableFactory<ScriptedDecal> CScrLuaMetatableFactory<ScriptedDecal>::sInstance{};
+// CScrLuaMetatableFactory<ScriptedDecal> is the primary template: one definition in every translation unit.
 
-CScrLuaMetatableFactory<ScriptedDecal>::CScrLuaMetatableFactory()
-  : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-{}
+// CScrLuaMetatableFactory<ScriptedDecal> is the primary template: one definition in every translation unit.
 
-CScrLuaMetatableFactory<ScriptedDecal>& CScrLuaMetatableFactory<ScriptedDecal>::Instance()
-{
-  return sInstance;
-}
+// CScrLuaMetatableFactory<ScriptedDecal> is the primary template: one definition in every translation unit.
 
-LuaPlus::LuaObject CScrLuaMetatableFactory<ScriptedDecal>::Create(LuaPlus::LuaState* const state)
-{
-  return SCR_CreateSimpleMetatable(state);
-}
+// CScrLuaMetatableFactory<ScriptedDecal> is the primary template: one definition in every translation unit.
 
 gpg::RType* ScriptedDecal::sType = nullptr;
 

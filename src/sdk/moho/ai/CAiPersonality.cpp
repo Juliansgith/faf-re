@@ -331,7 +331,7 @@ namespace
 } // namespace
 
 gpg::RType* CAiPersonality::sType = nullptr;
-CScrLuaMetatableFactory<CAiPersonality> CScrLuaMetatableFactory<CAiPersonality>::sInstance{};
+// CScrLuaMetatableFactory<CAiPersonality> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x005BA9F0 (FUN_005BA9F0, cfunc_CAiPersonalityAdjustDelayL)
@@ -1803,10 +1803,7 @@ int moho::register_CScrLuaMetatableFactory_CAiPersonality_Index()
   return index;
 }
 
-CScrLuaMetatableFactory<CAiPersonality>& CScrLuaMetatableFactory<CAiPersonality>::Instance()
-{
-  return sInstance;
-}
+// CScrLuaMetatableFactory<CAiPersonality> is the primary template: one definition in every translation unit.
 
 namespace
 {
@@ -1825,10 +1822,7 @@ namespace
 /**
  * Address: 0x005B9620 (FUN_005B9620, ?Create@?$CScrLuaMetatableFactory@VCAiPersonality@Moho@@@Moho@@MAE?AVLuaObject@LuaPlus@@PAVLuaState@4@@Z)
  */
-LuaPlus::LuaObject CScrLuaMetatableFactory<CAiPersonality>::Create(LuaPlus::LuaState* const state)
-{
-  return SCR_CreateSimpleMetatable(state);
-}
+// CScrLuaMetatableFactory<CAiPersonality> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x005B6B40 (FUN_005B6B40, default ctor body)

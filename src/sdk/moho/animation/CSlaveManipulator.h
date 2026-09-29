@@ -234,25 +234,7 @@ namespace moho
    * VFTABLE: 0x00E22D10
    * COL: 0x00E7AEF4
    */
-  template <>
-  class CScrLuaMetatableFactory<CSlaveManipulator> final : public CScrLuaObjectFactory
-  {
-  public:
-    static CScrLuaMetatableFactory& Instance();
-
-  protected:
-    /**
-     * Address: 0x00646610 (FUN_00646610, ?Create@?$CScrLuaMetatableFactory@VCSlaveManipulator@Moho@@@Moho@@MAE?AVLuaObject@LuaPlus@@PAVLuaState@4@@Z)
-     *
-     * What it does:
-     * Builds the metatable object used for `CSlaveManipulator` Lua userdata.
-     */
-    LuaPlus::LuaObject Create(LuaPlus::LuaState* state) override;
-
-  private:
-    CScrLuaMetatableFactory();
-    static CScrLuaMetatableFactory sInstance;
-  };
+  // CScrLuaMetatableFactory<CSlaveManipulator> is the primary template: one definition in every translation unit.
 
   static_assert(
     sizeof(CScrLuaMetatableFactory<CSlaveManipulator>) == 0x8,

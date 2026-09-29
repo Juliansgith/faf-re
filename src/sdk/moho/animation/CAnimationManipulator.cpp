@@ -396,7 +396,7 @@ namespace moho
   int cfunc_CAnimationManipulatorPlayAnimL(LuaPlus::LuaState* state);
 
   gpg::RType* CAnimationManipulator::sType = nullptr;
-  CScrLuaMetatableFactory<CAnimationManipulator> CScrLuaMetatableFactory<CAnimationManipulator>::sInstance{};
+  // CScrLuaMetatableFactory<CAnimationManipulator> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x10015880 (constructor shape)
@@ -404,14 +404,9 @@ namespace moho
    * What it does:
    * Stores one metatable-factory index used by `CScrLuaObjectFactory::Get`.
    */
-  CScrLuaMetatableFactory<CAnimationManipulator>::CScrLuaMetatableFactory()
-    : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-  {}
+  // CScrLuaMetatableFactory<CAnimationManipulator> is the primary template: one definition in every translation unit.
 
-  CScrLuaMetatableFactory<CAnimationManipulator>& CScrLuaMetatableFactory<CAnimationManipulator>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<CAnimationManipulator> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x00641E10 (FUN_00641E10, ?Create@?$CScrLuaMetatableFactory@VCAnimationManipulator@Moho@@@Moho@@MAE?AVLuaObject@LuaPlus@@PAVLuaState@4@@Z)
@@ -419,10 +414,7 @@ namespace moho
    * What it does:
    * Creates the default metatable used by `CAnimationManipulator` Lua userdata.
    */
-  LuaPlus::LuaObject CScrLuaMetatableFactory<CAnimationManipulator>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<CAnimationManipulator> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x006404B0 (FUN_006404B0, cfunc_CreateAnimator)

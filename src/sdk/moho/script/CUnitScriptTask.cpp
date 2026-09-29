@@ -262,7 +262,7 @@ namespace
 } // namespace
 
 gpg::RType* CUnitScriptTask::sType = nullptr;
-CScrLuaMetatableFactory<CUnitScriptTask> CScrLuaMetatableFactory<CUnitScriptTask>::sInstance{};
+// CScrLuaMetatableFactory<CUnitScriptTask> is the primary template: one definition in every translation unit.
 
 /**
   * Alias of FUN_10015880 (non-canonical helper lane).
@@ -270,15 +270,9 @@ CScrLuaMetatableFactory<CUnitScriptTask> CScrLuaMetatableFactory<CUnitScriptTask
  * What it does:
  * Stores one metatable-factory index used by `CScrLuaObjectFactory::Get`.
  */
-moho::CScrLuaMetatableFactory<moho::CUnitScriptTask>::CScrLuaMetatableFactory()
-  : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-{}
+// CScrLuaMetatableFactory<CUnitScriptTask> is the primary template: one definition in every translation unit.
 
-moho::CScrLuaMetatableFactory<moho::CUnitScriptTask>&
-moho::CScrLuaMetatableFactory<moho::CUnitScriptTask>::Instance()
-{
-  return sInstance;
-}
+// CScrLuaMetatableFactory<CUnitScriptTask> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x006240F0 (FUN_006240F0)
@@ -301,10 +295,7 @@ moho::startup_CScrLuaMetatableFactory_CUnitScriptTask_Index()
  * What it does:
  * Creates the default metatable used by `CUnitScriptTask` Lua userdata.
  */
-LuaPlus::LuaObject moho::CScrLuaMetatableFactory<moho::CUnitScriptTask>::Create(LuaPlus::LuaState* const state)
-{
-  return SCR_CreateSimpleMetatable(state);
-}
+// CScrLuaMetatableFactory<CUnitScriptTask> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x00622810 (FUN_00622810, default ctor)

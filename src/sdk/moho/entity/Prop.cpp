@@ -102,7 +102,7 @@ namespace moho
 {
   gpg::RType* SPropPriorityInfo::sType = nullptr;
   gpg::RType* Prop::sType = nullptr;
-  CScrLuaMetatableFactory<Prop> CScrLuaMetatableFactory<Prop>::sInstance{};
+  // CScrLuaMetatableFactory<Prop> is the primary template: one definition in every translation unit.
   int cfunc_PropAddBoundedProp(lua_State* luaContext);
   int cfunc_PropAddBoundedPropL(LuaPlus::LuaState* state);
   int cfunc_SplitProp(lua_State* luaContext);
@@ -113,18 +113,12 @@ namespace moho
   int cfunc_CreatePropHPR(lua_State* luaContext);
   int cfunc_CreatePropHPRL(LuaPlus::LuaState* state);
 
-  CScrLuaMetatableFactory<Prop>& CScrLuaMetatableFactory<Prop>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<Prop> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x00680010 (FUN_00680010, Moho::CScrLuaMetatableFactory<Moho::Prop>::Create)
    */
-  LuaPlus::LuaObject CScrLuaMetatableFactory<Prop>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<Prop> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x0067F140 (FUN_0067F140, func_GetPropFactory)

@@ -393,7 +393,7 @@ namespace
 namespace moho
 {
   gpg::RType* CSlideManipulator::sType = nullptr;
-  CScrLuaMetatableFactory<CSlideManipulator> CScrLuaMetatableFactory<CSlideManipulator>::sInstance{};
+  // CScrLuaMetatableFactory<CSlideManipulator> is the primary template: one definition in every translation unit.
 } // namespace moho
 
 /**
@@ -461,15 +461,9 @@ void moho::CSlideManipulator::MemberSerialize(gpg::WriteArchive* const archive) 
  * What it does:
  * Stores one metatable-factory index used by `CScrLuaObjectFactory::Get`.
  */
-moho::CScrLuaMetatableFactory<moho::CSlideManipulator>::CScrLuaMetatableFactory()
-  : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
-{}
+// CScrLuaMetatableFactory<CSlideManipulator> is the primary template: one definition in every translation unit.
 
-moho::CScrLuaMetatableFactory<moho::CSlideManipulator>&
-moho::CScrLuaMetatableFactory<moho::CSlideManipulator>::Instance()
-{
-  return sInstance;
-}
+// CScrLuaMetatableFactory<CSlideManipulator> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x00648420 (FUN_00648420, ?Create@?$CScrLuaMetatableFactory@VCSlideManipulator@Moho@@@Moho@@MAE?AVLuaObject@LuaPlus@@PAVLuaState@4@@Z)
@@ -477,10 +471,7 @@ moho::CScrLuaMetatableFactory<moho::CSlideManipulator>::Instance()
  * What it does:
  * Creates the default metatable used by `CSlideManipulator` Lua userdata.
  */
-LuaPlus::LuaObject moho::CScrLuaMetatableFactory<moho::CSlideManipulator>::Create(LuaPlus::LuaState* const state)
-{
-  return SCR_CreateSimpleMetatable(state);
-}
+// CScrLuaMetatableFactory<CSlideManipulator> is the primary template: one definition in every translation unit.
 
 /**
  * Address: 0x00647020 (FUN_00647020, ??0CSlideManipulator@Moho@@QAE@XZ)

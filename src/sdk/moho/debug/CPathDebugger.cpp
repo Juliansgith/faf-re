@@ -63,18 +63,12 @@ namespace
 
 namespace moho
 {
-  CScrLuaMetatableFactory<CPathDebugger> CScrLuaMetatableFactory<CPathDebugger>::sInstance{};
+  // CScrLuaMetatableFactory<CPathDebugger> is the primary template: one definition in every translation unit.
   gpg::RType* CPathDebugger::sType = nullptr;
 
-  CScrLuaMetatableFactory<CPathDebugger>& CScrLuaMetatableFactory<CPathDebugger>::Instance()
-  {
-    return sInstance;
-  }
+  // CScrLuaMetatableFactory<CPathDebugger> is the primary template: one definition in every translation unit.
 
-  LuaPlus::LuaObject CScrLuaMetatableFactory<CPathDebugger>::Create(LuaPlus::LuaState* const state)
-  {
-    return SCR_CreateSimpleMetatable(state);
-  }
+  // CScrLuaMetatableFactory<CPathDebugger> is the primary template: one definition in every translation unit.
 
   /**
    * Address: 0x007B6390 (FUN_007B6390, register_CScrLuaMetatableFactory_CPathDebugger_Index)

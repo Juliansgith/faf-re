@@ -1210,19 +1210,7 @@ namespace moho
   static_assert(offsetof(CameraImpl, mMaxZoomMult) == 0x850, "CameraImpl::mMaxZoomMult offset must be 0x850");
   static_assert(sizeof(CameraImpl) == 0x858, "CameraImpl size must be 0x858");
 
-  template <>
-  class CScrLuaMetatableFactory<CameraImpl> final : public CScrLuaObjectFactory
-  {
-  public:
-    [[nodiscard]]
-    static CScrLuaMetatableFactory& Instance();
-
-  protected:
-    LuaPlus::LuaObject Create(LuaPlus::LuaState* state) override;
-
-  private:
-    static CScrLuaMetatableFactory sInstance;
-  };
+  // CScrLuaMetatableFactory<CameraImpl> is the primary template: one definition in every translation unit.
 
   static_assert(
     sizeof(CScrLuaMetatableFactory<CameraImpl>) == 0x08,
