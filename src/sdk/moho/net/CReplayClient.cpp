@@ -215,7 +215,7 @@ void CReplayClient::Start()
   {
     static int sProbeStart = 0;
     if ((++sProbeStart % 50) == 1) {
-      if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+      if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
         std::fprintf(
           sink,
           "[BEATPIPE] replayStart n=%d poll=%d stream=%p queued=%u dispatched=%u\n",
@@ -249,7 +249,7 @@ void CReplayClient::Start()
       {
         static int sProbeSrc = 0;
         if ((sProbeSrc++ % 20) == 0) {
-          if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+          if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
             std::fprintf(
               sink,
               "[BEATPIPE] setSource src=%u allowed=%d\n",
@@ -267,7 +267,7 @@ void CReplayClient::Start()
       {
         static int sProbeCmd = 0;
         if ((sProbeCmd++ % 20) == 0) {
-          if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+          if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
             std::fprintf(
               sink,
               "[BEATPIPE] replayCmd type=%u allowed=%d queued=%u dispatched=%u\n",

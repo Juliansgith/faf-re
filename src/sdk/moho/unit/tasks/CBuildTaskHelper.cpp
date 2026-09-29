@@ -1,4 +1,5 @@
 #include "moho/unit/tasks/CBuildTaskHelper.h"
+#include "gpg/core/utils/Logging.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -313,7 +314,7 @@ namespace moho
         static int sProbeSiloSeen = 0;
         ++sProbeSiloSeen;
         if ((sProbeSiloSeen % 200) == 0) {
-          if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+          if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
             const float reqE = ownerUnit->mConsumptionData ? ownerUnit->mConsumptionData->mRequested.energy : -1.0f;
             const float reqM = ownerUnit->mConsumptionData ? ownerUnit->mConsumptionData->mRequested.mass : -1.0f;
             const float grantE = ownerUnit->mConsumptionData ? ownerUnit->mConsumptionData->mGranted.energy : -1.0f;

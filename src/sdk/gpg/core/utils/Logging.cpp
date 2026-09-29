@@ -9,6 +9,7 @@
 #include <Windows.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdarg>
 #include <cstddef>
 #include <cstdint>
@@ -1202,7 +1203,7 @@ int DebugOutputStreambuf::sync()
  */
 void LogContext::Dispatch(const LogSeverity level, const msvc8::string& msg)
 {
-    if (level >= LogSeverity::Warn && head.next == &head) {
+    if (level >= LogSeverity::Warn && head.next == &head && LogDiagnosticsEnabled()) {
         ::OutputDebugStringA(msg.c_str());
         ::OutputDebugStringA("\n");
     }
@@ -1457,6 +1458,76 @@ void gpg::LogScopeEntry::Emit()
     body.clear();
 }
 
+namespace
+{
+  // -1 = not resolved yet, 0 = off, 1 = on. Resolved lazily from the process command line so it
+  // works before the engine's own option parsing (logging starts during static initialisation).
+  std::atomic<int> gLogDiagnosticsState{-1};
+
+  [[nodiscard]] bool CommandLineHasDiagSwitch() noexcept
+  {
+    const char* const commandLine = ::GetCommandLineA();
+    if (commandLine == nullptr) {
+      return false;
+    }
+    const char* const token = "/diag";
+    const std::size_t tokenLength = std::strlen(token);
+    for (const char* p = commandLine; *p != '\0'; ++p) {
+      const bool atTokenStart = (p == commandLine) || p[-1] == ' ' || p[-1] == '\t' || p[-1] == '"';
+      if (atTokenStart && ::_strnicmp(p, token, tokenLength) == 0) {
+        const char after = p[tokenLength];
+        if (after == '\0' || after == ' ' || after == '\t' || after == '"') {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+} // namespace
+
+/**
+ * Engine addition (see Logging.h): whether bracket-tagged diagnostic probes are logged.
+ */
+bool gpg::LogDiagnosticsEnabled() noexcept
+{
+  int state = gLogDiagnosticsState.load(std::memory_order_relaxed);
+  if (state < 0) {
+    state = CommandLineHasDiagSwitch() ? 1 : 0;
+    gLogDiagnosticsState.store(state, std::memory_order_relaxed);
+  }
+  return state != 0;
+}
+
+/**
+ * Engine addition (see Logging.h).
+ */
+void gpg::SetLogDiagnosticsEnabled(const bool enabled) noexcept
+{
+  gLogDiagnosticsState.store(enabled ? 1 : 0, std::memory_order_relaxed);
+}
+
+/**
+ * Engine addition (see Logging.h).
+ */
+bool gpg::IsDiagnosticProbeText(const char* const text) noexcept
+{
+  if (text == nullptr || text[0] != '[') {
+    return false;
+  }
+  int length = 0;
+  for (const char* p = text + 1; *p != '\0'; ++p, ++length) {
+    const char c = *p;
+    if (c == ']') {
+      return length >= 3;
+    }
+    const bool tagChar = (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+    if (!tagChar) {
+      return false;
+    }
+  }
+  return false;
+}
+
 /**
  * Address: 0x00937C00 (FUN_00937C00, gpg::LogMessage)
  *
@@ -1465,6 +1536,9 @@ void gpg::LogScopeEntry::Emit()
  */
 void gpg::LogMessage(const LogSeverity level, const msvc8::string& message)
 {
+    if (IsDiagnosticProbeText(message.c_str()) && !LogDiagnosticsEnabled()) {
+        return;
+    }
     std::call_once(g_LogOnce, &InitLogSingleton);
     if (g_LogCtx) {
         g_LogCtx->Dispatch(level, message);
@@ -1479,6 +1553,9 @@ void gpg::LogMessage(const LogSeverity level, const msvc8::string& message)
  */
 void gpg::Logf(const char* fmt, ...)
 {
+    if (IsDiagnosticProbeText(fmt) && !LogDiagnosticsEnabled()) {
+        return;
+    }
     va_list va;
     va_start(va, fmt);
     const msvc8::string msg = STR_Va(fmt, va);
@@ -1498,6 +1575,9 @@ void gpg::Logf(const char* fmt, ...)
  */
 void gpg::Warnf(const char* fmt, ...)
 {
+    if (IsDiagnosticProbeText(fmt) && !LogDiagnosticsEnabled()) {
+        return;
+    }
     va_list va;
     va_start(va, fmt);
     const msvc8::string msg = STR_Va(fmt, va);
@@ -1517,6 +1597,9 @@ void gpg::Warnf(const char* fmt, ...)
  */
 void gpg::Debugf(const char* fmt, ...)
 {
+    if (IsDiagnosticProbeText(fmt) && !LogDiagnosticsEnabled()) {
+        return;
+    }
     va_list va;
     va_start(va, fmt);
     const msvc8::string msg = STR_Va(fmt, va);

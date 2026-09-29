@@ -1,4 +1,5 @@
 #include "moho/effects/rendering/CEfxEmitter.h"
+#include "gpg/core/utils/Logging.h"
 
 #include <cmath>
 #include <cstddef>
@@ -55,7 +56,7 @@ namespace
   // here instead. The file lands beside the executable.
   void FxAttachDiagLine(const char* const fmt, ...)
   {
-    std::FILE* const sink = std::fopen("faf_diag.log", "a");
+    std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr);
     if (sink == nullptr) {
       return;
     }

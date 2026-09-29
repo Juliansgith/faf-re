@@ -419,7 +419,7 @@ namespace moho
         // Mirror into faf_diag.log (gpg::Logf only reaches an active /log
         // target): this line is the one-shot proof the FAF_BONE_TEXTURE mesh
         // effect engaged, which the base-view FPS triage depends on knowing.
-        if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+        if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
           std::fprintf(sink, "[BONETEX] engaged: %ux%u, room for %u bones\n", kWidth, rows, rows * kBonesPerRow);
           std::fclose(sink);
         }

@@ -960,7 +960,7 @@ void CClientManagerImpl::DoBeat()
     {
       static int sProbeAvail = 0;
       if ((++sProbeAvail % 50) == 1) {
-        if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+        if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
           std::fprintf(
             sink,
             "[BEATPIPE] availAdvance n=%d from=%d clients=%u ready=%d everyone=%d\n",

@@ -1,4 +1,5 @@
 #include "moho/effects/rendering/CEfxTrailEmitter.h"
+#include "gpg/core/utils/Logging.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -49,7 +50,7 @@ namespace
   // here instead. The file lands beside the executable.
   void TrailDiagLine(const char* const fmt, ...)
   {
-    std::FILE* const sink = std::fopen("faf_diag.log", "a");
+    std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr);
     if (sink == nullptr) {
       return;
     }

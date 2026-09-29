@@ -8432,7 +8432,7 @@ void Sim::IssueCommand(
           ++resolvedCount;
         }
       });
-      if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+      if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
         std::fprintf(
           sink,
           "[BEATPIPE] simIssue n=%d type=%u cmdId=0x%08x bits=%u first=0x%08x resolved=%u curSrc=%d\n",
@@ -8793,7 +8793,7 @@ void Sim::LuaSimCallback(
     {
       static DiagnosticBudget sSimCallbackErrorBudget;
       if (sSimCallbackErrorBudget.Take(200)) {
-        if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+        if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
           std::fprintf(sink, "[LUADIAG] sim callback '%s': %s\n", callbackName, error.what());
           std::fclose(sink);
         }
@@ -10226,14 +10226,14 @@ int Sim::SimLua(
 
   // TEMPORARY PROBE -- replay beat-pipeline triage. Delete when resolved.
   {
-    if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+    if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
       std::fprintf(sink, "[BEATPIPE] simLua running len=%u head=%.60s\n", static_cast<unsigned>(commandText.size()), commandText.c_str());
       std::fclose(sink);
     }
   }
   const int luaResult = SCR_LuaDoString(commandText.c_str(), sim->mLuaState);
   {
-    if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+    if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
       std::fprintf(sink, "[BEATPIPE] simLua result=%d\n", luaResult);
       std::fclose(sink);
     }
@@ -10493,7 +10493,7 @@ void Sim::AdvanceBeat(const int amt)
   {
     static int sProbeBeat = 0;
     if ((++sProbeBeat % 200) == 0) {
-      if (std::FILE* const sink = std::fopen("faf_diag.log", "a"); sink != nullptr) {
+      if (std::FILE* const sink = (gpg::LogDiagnosticsEnabled() ? std::fopen("faf_diag.log", "a") : nullptr); sink != nullptr) {
         std::fprintf(
           sink,
           "[BEATPIPE] simAdvanceBeat n=%d beat=%u tick=%u paused=%d singleStep=%d\n",
