@@ -995,7 +995,8 @@ namespace moho
     };
     (void)Wm3::Vector3f::Normalize(&halfAxis);
 
-    const float scalar = (currentUp.x * halfAxis.x) + (currentUp.y * halfAxis.y) + (currentUp.z * halfAxis.z);
+    // 0x0050CBC4-0x0050CBDA sum the dot product as (z + x) + y.
+    const float scalar = ((currentUp.z * halfAxis.z) + (currentUp.x * halfAxis.x)) + (currentUp.y * halfAxis.y);
     outDelta->w = scalar;
     if (scalar == 0.0f) {
       // Exactly opposed: the half-vector is degenerate, so pick an axis
