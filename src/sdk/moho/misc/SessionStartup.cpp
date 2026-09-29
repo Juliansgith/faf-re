@@ -1,4 +1,5 @@
 #include "moho/misc/SessionStartup.h"
+#include "moho/misc/EngineVersion.h"
 
 #include <Windows.h>
 
@@ -347,8 +348,9 @@ namespace moho
     constexpr std::size_t kReplayFormatBannerBytes = sizeof(kReplayFormatBanner) - 1u;
     constexpr double kReplayEngineVersion = 1.5;
     /// The build the replay header advertises: 0xEFB (3835) in the target binary
-    /// (FUN_00875B60 writer, FUN_008765E0 reader, FUN_004D3D30 GetEngineVersion).
-    constexpr int kReplayEngineBuild = 3835;
+    /// (FUN_00875B60 writer, FUN_008765E0 reader, FUN_004D3D30 GetEngineVersion);
+    /// FAF's releases stamp their own number, see moho/misc/EngineVersion.h.
+    constexpr int kReplayEngineBuild = kEngineBuildVersion;
     /// Terminates one army's unit-source list; no source index can reach it.
     constexpr std::uint8_t kReplayUnitSourceListEnd = 0xFFu;
   } // namespace
@@ -495,7 +497,7 @@ namespace moho
     }
 
     gpg::BinaryReader replayReader(replayStream.get());
-    const msvc8::string expectedVersion = gpg::STR_Printf("Supreme Commander v%1.2f.%4i", 1.5, kReplayEngineBuild);
+    const msvc8::string expectedVersion = gpg::STR_Printf("Supreme Commander v%1.2f.%4i", 1.5, kEngineBuildVersion);
     msvc8::string replayVersion{};
     replayReader.ReadString(&replayVersion);
     if (replayVersion.view() != expectedVersion.view()) {

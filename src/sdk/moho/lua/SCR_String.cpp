@@ -1,4 +1,5 @@
 #include "moho/lua/SCR_String.h"
+#include "moho/misc/EngineVersion.h"
 
 #include "gpg/core/containers/String.h"
 #include "gpg/core/streams/BinaryReader.h"
@@ -384,11 +385,10 @@ moho::CScrLuaInitForm* moho::register_STR_GetTokens_LuaFuncDef()
  */
 msvc8::string moho::GetEngineVersion()
 {
-  /// The build the engine reports (0xEFB / 3835 in the target binary;
-  /// see FUN_004D3D30 asm `push 0xefb` under `%1.1f.%i`).
-  constexpr int kEngineBuild = 3835;
-
-  return gpg::STR_Printf("%1.1f.%i", 1.5, kEngineBuild);
+  /// The build the engine reports: 0xEFB (3835) in the target binary (see
+  /// FUN_004D3D30 asm `push 0xefb` under `%1.1f.%i`); FAF's releases stamp
+  /// their own number, see moho/misc/EngineVersion.h.
+  return gpg::STR_Printf("%1.1f.%i", 1.5, kEngineBuildVersion);
 }
 
 /**
