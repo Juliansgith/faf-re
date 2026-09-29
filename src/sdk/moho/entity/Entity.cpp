@@ -401,44 +401,6 @@ namespace
     return fallbackSet;
   }
 
-  [[nodiscard]] float SampleSymmetricRange(moho::CRandomStream* const random, const float range) noexcept
-  {
-    if (random == nullptr || range == 0.0f) {
-      return 0.0f;
-    }
-
-    const float unit = moho::CMersenneTwister::ToUnitFloat(random->twister.NextUInt32());
-    return (-range) + (2.0f * range * unit);
-  }
-
-  /**
-   * Address: 0x0051C400 (FUN_0051C400)
-   *
-   * What it does:
-   * Samples one randomized projectile spawn offset from blueprint position lanes
-   * using symmetric per-axis spread ranges.
-   */
-  [[nodiscard]] Wm3::Vector3f SampleProjectileSpawnOffset(
-    moho::CRandomStream& random,
-    const moho::RProjectileBlueprint& blueprint
-  ) noexcept
-  {
-    constexpr double kInvUInt32Range = 2.3283064e-10;
-
-    const auto sampleAxis = [&random](const float base, const float range) noexcept -> float {
-      const double min = -static_cast<double>(range);
-      const double span = static_cast<double>(range) - min;
-      const double unit = static_cast<double>(random.twister.NextUInt32()) * kInvUInt32Range;
-      return static_cast<float>(min + (span * unit) + static_cast<double>(base));
-    };
-
-    Wm3::Vector3f out{};
-    out.x = sampleAxis(blueprint.Physics.PositionX, blueprint.Physics.PositionXRange);
-    out.y = sampleAxis(blueprint.Physics.PositionY, blueprint.Physics.PositionYRange);
-    out.z = sampleAxis(blueprint.Physics.PositionZ, blueprint.Physics.PositionZRange);
-    return out;
-  }
-
   [[nodiscard]] float VectorLength(const Wm3::Vector3f& value) noexcept
   {
     return std::sqrt((value.x * value.x) + (value.y * value.y) + (value.z * value.z));
@@ -516,35 +478,6 @@ namespace
     return localBox;
   }
 
-  [[nodiscard]] Wm3::Vector3f BuildRandomProjectileOffset(
-    moho::CRandomStream* const random,
-    const moho::RProjectileBlueprint& blueprint
-  ) noexcept
-  {
-    if (random == nullptr) {
-      return Wm3::Vector3f{
-        blueprint.Physics.PositionX,
-        blueprint.Physics.PositionY,
-        blueprint.Physics.PositionZ
-      };
-    }
-
-    return SampleProjectileSpawnOffset(*random, blueprint);
-  }
-
-  [[nodiscard]] Wm3::Vector3f BuildRandomProjectileDirection(
-    moho::CRandomStream* const random,
-    const moho::RProjectileBlueprint& blueprint
-  ) noexcept
-  {
-    Wm3::Vector3f direction{};
-    direction.x = blueprint.Physics.DirectionX + SampleSymmetricRange(random, blueprint.Physics.DirectionXRange);
-    direction.y = blueprint.Physics.DirectionY + SampleSymmetricRange(random, blueprint.Physics.DirectionYRange);
-    direction.z = blueprint.Physics.DirectionZ + SampleSymmetricRange(random, blueprint.Physics.DirectionZRange);
-    NormalizeInPlace(direction);
-    return direction;
-  }
-
   // Ground truth (`FUN_0068A6F0.c`, `cfunc_EntityCreateProjectileAtBoneL`'s
   // only caller of this helper) rotates via the engine's scalar-first rotation
   // matrix, not the generic `Quaternion::Rotate` (upstream WildMagic,
@@ -562,12 +495,17 @@ namespace
   // form exactly (`2*(wy+xz)`, `2*(wz-xy)`, `1-2*(z^2+y^2)`) -- full 3/3
   // term match, not just the 2/3 an earlier pass here reported before
   // resolving the split.
+  //
+  // 0x0068A8EF-0x0068A96C inline that rotation with lane 0 as the scalar,
+  // x = 2(zx + yw), y = 2(zy - xw), z = 1 - 2(yy + xx), in exactly this
+  // operation order and without normalizing the result.
   [[nodiscard]] Wm3::Vector3f ResolveBoneForwardVector(const moho::VTransform& transform) noexcept
   {
-    const Wm3::Vector3f forwardAxis{0.0f, 0.0f, 1.0f};
+    const Wm3::Quaternionf& q = transform.orient_;
     Wm3::Vector3f out{};
-    moho::MultQuadVec(&out, &forwardAxis, &transform.orient_);
-    NormalizeInPlace(out);
+    out.x = ((q.z * q.x) + (q.y * q.w)) * 2.0f;
+    out.y = ((q.z * q.y) - (q.x * q.w)) * 2.0f;
+    out.z = 1.0f - (((q.y * q.y) + (q.x * q.x)) * 2.0f);
     return out;
   }
 
@@ -4325,7 +4263,8 @@ namespace moho
       }
       launchOffset.z = static_cast<float>(lua_tonumber(rawState, 5));
     } else {
-      launchOffset = BuildRandomProjectileOffset(sim ? sim->mRngState : nullptr, *projectileBlueprint);
+      // 0x0068A287: FUN_0051C400, one twister word per lane even for zero ranges.
+      launchOffset = projectileBlueprint->GetRandomLaunchOffset(sim->mRngState);
     }
 
     Wm3::Vector3f launchDirection{};
@@ -4348,7 +4287,9 @@ namespace moho
       }
       launchDirection.z = static_cast<float>(lua_tonumber(rawState, 8));
     } else {
-      launchDirection = BuildRandomProjectileDirection(sim ? sim->mRngState : nullptr, *projectileBlueprint);
+      // 0x0068A3BA: FUN_0051C510, one twister word per lane even for zero ranges; the direction
+      // goes to COORDS_Orient as drawn (it normalizes its own copy).
+      launchDirection = projectileBlueprint->GetRandomLaunchDirection(sim->mRngState);
     }
 
     const VTransform sourceTransform = entity->GetBoneWorldTransform(-2);
@@ -4459,16 +4400,20 @@ namespace moho
 
     const VTransform launchTransform = entity->GetBoneWorldTransform(boneIndex);
 
-    CRandomStream* const random = (entity->SimulationRef ? entity->SimulationRef->mRngState : nullptr);
-    Wm3::Vector3f launchDirection = BuildRandomProjectileDirection(random, *projectileBlueprint);
+    // 0x0068A8C2-0x0068A9E7: blueprint direction spread (FUN_0051C510), the bone's forward axis when
+    // that is bitwise the zero vector (memcmp against Vector3f::ZERO at 0x0068A8E2), then the
+    // inlined launch-speed spread -- every spread draws its twister word, zero ranges included.
+    CRandomStream* const random = entity->SimulationRef->mRngState;
+    Wm3::Vector3f launchDirection = projectileBlueprint->GetRandomLaunchDirection(random);
 
     const Wm3::Vector3f zero = Wm3::Vector3f::Zero();
-    if (launchDirection == zero) {
+    if (std::memcmp(&launchDirection, &zero, sizeof(zero)) == 0) {
       launchDirection = ResolveBoneForwardVector(launchTransform);
     }
 
     const float launchSpeed =
-      projectileBlueprint->Physics.InitialSpeed + SampleSymmetricRange(random, projectileBlueprint->Physics.InitialSpeedRange);
+      random->FRand(-projectileBlueprint->Physics.InitialSpeedRange, projectileBlueprint->Physics.InitialSpeedRange) +
+      projectileBlueprint->Physics.InitialSpeed;
 
     const CAiTarget target = MakeDefaultProjectileTarget();
     const msvc8::string damageTypeName("Normal");
