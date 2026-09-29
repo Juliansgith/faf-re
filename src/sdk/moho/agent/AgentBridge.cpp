@@ -23,7 +23,10 @@
 #include "legacy/containers/Vector.h"
 #include "lua/LuaObject.h"
 #include "moho/misc/StartupHelpers.h"
+#include "moho/net/CClientManagerImpl.h"
+#include "moho/sim/CWldSession.h"
 #include "moho/sim/Sim.h"
+#include "moho/sim/SimDriver.h"
 #include "platform/X87Precision.h"
 
 // Engine addition, not recovered from the binary. See AgentBridge.h for the protocol.
@@ -1053,6 +1056,33 @@ namespace moho
       runtime.lastReplyTime = Now();
       MarkBusy(false);
     }
+  } // namespace
+
+  namespace
+  {
+    // Diagnostics (engine addition): with /netdiag, dump the client manager's beat bookkeeping (queued,
+    // dispatched and available beats per client, readiness) to the log every five seconds -- for
+    // finding out why a session (e.g. a replay) stops dispatching beats.
+    struct NetDiagnosticsStarter
+    {
+      NetDiagnosticsStarter()
+      {
+        if (!CFG_GetArgOption("/netdiag", 0, nullptr)) {
+          return;
+        }
+        std::thread([] {
+          for (;;) {
+            ::Sleep(5000);
+            if (ISTIDriver* const driver = WLD_GetDriver(); driver != nullptr) {
+              if (CClientManagerImpl* const clientManager = driver->GetClientManager(); clientManager != nullptr) {
+                clientManager->Debug();
+              }
+            }
+          }
+        }).detach();
+      }
+    };
+    const NetDiagnosticsStarter gNetDiagnosticsStarter{};
   } // namespace
 
   void AGENT_OnSimBeatStart()
