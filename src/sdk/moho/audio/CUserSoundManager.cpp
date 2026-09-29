@@ -972,6 +972,13 @@ namespace moho
 
   void CUserSoundManager::UpdateSoundRequests(const gpg::fastvector<SAudioRequest>& requests)
   {
+    // Engine addition (agent bridge): without an audio engine (/nosound) nothing in this pass can
+    // play, but the [SNDDIAG] probes below still sweep the descriptor registry and VirtualQuery
+    // every audible entity each frame -- most of a /nosound training game's main thread. Skip it.
+    if (!SND_Enabled()) {
+      return;
+    }
+
     SndDiagScanParamsRegistry();
 
     EnsureSoundCounterStat(gEngineStatSoundLimitedLoop, "Sound_LimitedLoop");
