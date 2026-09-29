@@ -4,6 +4,7 @@
 #include "moho/sim/CSimConCommand.h"
 #include "moho/sim/CSimConVarBase.h"
 #include "SimDriver.h"
+#include "moho/agent/AgentBridge.h"
 
 #include <algorithm>
 #include <array>
@@ -10466,6 +10467,7 @@ void Sim::ExecuteDebugCommand(
 void Sim::AdvanceBeat(const int amt)
 {
   (void)amt; // Binary implementation does not consume this parameter at 0x00749F40.
+  AGENT_OnSimBeatStart(); // Engine addition: agent-bridge step timing (inert without /agentbridge).
 
   Logf("********** beat %u **********\n", mCurBeat);
   RulesUpdateLuaState(mRules, mLuaState);
@@ -10654,12 +10656,18 @@ void Sim::AdvanceBeat(const int amt)
     TickDebugOverlay(overlay, this);
   }
 
-  if (mLuaState && mLuaState->m_state && (mCurTick % 70u) == 0u) {
+  // Engine addition: an unpaced agent-bridge session stretches this period (AGENT_ForcedGcPeriod).
+  const auto forcedGcPeriod = static_cast<std::uint32_t>(AGENT_ForcedGcPeriod(70));
+  if (mLuaState && mLuaState->m_state && (mCurTick % forcedGcPeriod) == 0u) {
     lua_setgcthreshold(mLuaState->m_state, 0);
   }
 
   // +0x08FC latch: set here in AdvanceBeat, cleared in Sim::Sync.
   mDidProcess = true;
+
+  // Engine addition: lets an external agent observe and command armies between ticks (inert
+  // unless the game was launched with /agentbridge; see moho/agent/AgentBridge.h).
+  AGENT_OnSimBeat(this);
 }
 
 /**

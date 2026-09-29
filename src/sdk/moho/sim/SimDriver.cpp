@@ -1,5 +1,6 @@
 #include "SimDriver.h"
 #include "gpg/core/utils/Logging.h"
+#include "moho/agent/AgentBridge.h"
 #include "legacy/math/X87Math.h"
 #include "platform/X87Precision.h"
 
@@ -1353,10 +1354,13 @@ void CSimDriver::ThreadRun()
 
     // Nothing is issued until the sim has published at least one sync, every
     // outstanding request has been answered, and the sync queue has room.
+    // (Engine addition: an unpaced agent-bridge session scales these limits.)
+    const auto maxQueuedSyncPackets =
+      static_cast<std::uint32_t>(AGENT_ScaleRunAheadLimit(static_cast<int>(kMaxQueuedSyncPacketsBeforeStalling)));
     if (mLastSyncCycleTime != 0 && mOutstandingRequests == 0
-        && mSyncDataQueue.Size() < kMaxQueuedSyncPacketsBeforeStalling) {
+        && mSyncDataQueue.Size() < maxQueuedSyncPackets) {
       int lastBeatToIssue = mNextIssueBeat - 1;
-      const int beatCeiling = mLastDequeuedBeat + kMaxBeatsAheadOfExecuted;
+      const int beatCeiling = mLastDequeuedBeat + AGENT_ScaleRunAheadLimit(kMaxBeatsAheadOfExecuted);
 
       if (mSimBusy) {
         int partiallyQueuedBeat = 0;
@@ -1401,7 +1405,9 @@ void CSimDriver::ThreadRun()
         // rate climbing 2, 53, 61, 81, 94 ... So the defect is upstream in
         // whatever dispatches that console command, i.e. the input/key-binding
         // path feeding `IncreaseGameSpeed`; nothing in this file needs changing.
-        const float simRateScale = msvc8::pow(10.0f, static_cast<float>(mClientManager->GetSimRate()) * 0.1f);
+        // Engine addition: the agent bridge may pace the sim at its own rate (/agentspeed).
+        const int pacingSimRate = AGENT_ResolvePacingSimRate(mClientManager->GetSimRate());
+        const float simRateScale = msvc8::pow(10.0f, static_cast<float>(pacingSimRate) * 0.1f);
         const float millisecondsPerBeat = (0.1f / simRateScale) * 1000.0f;
         const float leadMilliseconds =
           static_cast<float>(mNextIssueBeat - mLastDequeuedBeat) * millisecondsPerBeat - net_Lag;
@@ -1420,9 +1426,10 @@ void CSimDriver::ThreadRun()
           const float lateBeats = std::min((1.0f / millisecondsPerBeat) * lateMilliseconds, 1.0e8f);
           lastBeatToIssue = static_cast<int>(std::floor(lateBeats)) + mNextIssueBeat;
 
+          const int maxCatchUpBeats = AGENT_ScaleRunAheadLimit(kMaxCatchUpBeats);
           int catchUpCeiling = static_cast<int>(std::min((1.0f / millisecondsPerBeat) * 2000.0f, 1.0e8f));
-          if (catchUpCeiling > kMaxCatchUpBeats) {
-            catchUpCeiling = kMaxCatchUpBeats;
+          if (catchUpCeiling > maxCatchUpBeats) {
+            catchUpCeiling = maxCatchUpBeats;
           }
           if (lastBeatToIssue <= mLastDequeuedBeat + catchUpCeiling) {
             waitMilliseconds = 0;

@@ -4,6 +4,7 @@
 #include <array>
 #include <bit>
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cctype>
 #include <clocale>
@@ -21291,11 +21292,21 @@ namespace LuaPlus
 	 */
 	thread_local lua_State* gDiagRunningTaskThread = nullptr;
 
+	// The same coroutine, readable from another thread (the agent-bridge watchdog hooks it when the
+	// sim stops making progress). Only ever read as a hint.
+	std::atomic<lua_State*> gRunningTaskThreadShared{nullptr};
+
 	lua_State* SetDiagRunningTaskThread(lua_State* thread) noexcept
 	{
 		lua_State* const previous = gDiagRunningTaskThread;
 		gDiagRunningTaskThread = thread;
+		gRunningTaskThreadShared.store(thread, std::memory_order_relaxed);
 		return previous;
+	}
+
+	lua_State* GetRunningTaskThreadShared() noexcept
+	{
+		return gRunningTaskThreadShared.load(std::memory_order_relaxed);
 	}
 } // namespace LuaPlus
 

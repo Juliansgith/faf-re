@@ -1,5 +1,6 @@
 #include "moho/effects/rendering/CEfxEmitter.h"
 #include "gpg/core/utils/Logging.h"
+#include "moho/agent/AgentBridge.h"
 
 #include <cmath>
 #include <cstddef>
@@ -1249,6 +1250,14 @@ namespace moho
     }
 
     if (ProcessLifetime() || !IsVisible()) {
+      return;
+    }
+
+    // Engine addition: an unpaced agent-bridge session emits no particles (they only feed the
+    // renderer). Age the emitter the way the not-visible path in IsVisible does, so it still
+    // reaches the end of its lifetime.
+    if (AGENT_SkipParticleEmission()) {
+      ++mLife;
       return;
     }
 
