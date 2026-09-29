@@ -390,7 +390,10 @@ namespace moho
     transform.pos_.x = posX;
     transform.pos_.y = posY;
     transform.pos_.z = posZ;
-    (void)MatrixToQuat(rotationMatrix, &transform.orient_);
+    // 0x006FC2E3 converts with FUN_004F0CB0 (x = m21 - m12, ...), as CreateUnitHPR does -- not with
+    // func_MatrixToQuat (0x004EB3F0), whose opposite lane order gave every map prop the conjugate
+    // orientation (a mirrored heading, and collision boxes turned the wrong way).
+    (void)MatrixRowsToQuatCanonical(rotationMatrix, &transform.orient_);
 
     Prop* const prop = PROP_Create(sim, transform, blueprintId.c_str());
     if (prop == nullptr) {
