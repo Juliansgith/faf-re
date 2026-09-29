@@ -156,7 +156,18 @@ namespace moho
    * Address: 0x004EB590 (FUN_004EB590, func_EulerToQuaternion)
    *
    * What it does:
-   * Converts Euler roll/pitch/yaw lanes into one quaternion orientation.
+   * Converts Euler roll/pitch/yaw lanes into one quaternion orientation:
+   * yaw about Y, then pitch about X, then roll about Z -
+   * `Yaw(y) * Pitch(x) * Roll(z)`, scalar in lane 0.
+   *
+   * The binary forms this as two generic quaternion products and multiplies
+   * the single-axis quaternions' zero lanes out instead of folding them
+   * (0x004EB5D8-0x004EB711); every line below keeps one instruction's
+   * operation and order, so the result carries the same bits (and the same
+   * -0.0/NaN behaviour). The earlier closed form had the vector lanes rotated
+   * (its x, y, z were the binary's z, x, y), so FAF's StructureUnit terrain
+   * tilt (`EulerToQuaternion(roll, pitch, 0) * orientation`) turned every
+   * sloped structure about the wrong axis.
    */
   Wm3::Quaternionf EulerToQuaternion(const VEulers3& orientation)
   {
@@ -164,18 +175,35 @@ namespace moho
     const float halfPitch = orientation.p * 0.5f;
     const float halfYaw = orientation.y * 0.5f;
 
-    const float rollCos = msvc8::cos(halfRoll);
-    const float rollSin = msvc8::sin(halfRoll);
-    const float pitchCos = msvc8::cos(halfPitch);
-    const float pitchSin = msvc8::sin(halfPitch);
-    const float yawCos = msvc8::cos(halfYaw);
-    const float yawSin = msvc8::sin(halfYaw);
+    const float cr = msvc8::cos(halfRoll);
+    const float sr = msvc8::sin(halfRoll);
+    const float cp = msvc8::cos(halfPitch);
+    const float sp = msvc8::sin(halfPitch);
+    const float cy = msvc8::cos(halfYaw);
+    const float sy = msvc8::sin(halfYaw);
+    const float zero = 0.0f;
+
+    // q1 = Yaw(y) * Pitch(x): lanes (w, x, y, z) = (a, b, d, c).
+    const float sp0 = sp * zero;
+    const float cp0 = cp * zero;
+    const float cy0 = cy * zero;
+    const float sy0 = sy * zero;
+    const float a = ((cy * cp) - sp0) - sy0;
+    const float b = ((sp * cy) + cp0) + sy0;
+    const float c = (cy0 + cp0) - (sy * sp);
+    const float d = ((sy * cp) + cy0) + sp0;
+
+    // q1 * Roll(z), roll = (cr, 0, 0, sr).
+    const float b0 = b * zero;
+    const float d0 = d * zero;
+    const float a0 = a * zero;
+    const float c0 = c * zero;
 
     Wm3::Quaternionf orientationOut{};
-    orientationOut.w = (yawCos * pitchCos * rollCos) + (yawSin * pitchSin * rollSin);
-    orientationOut.x = (yawCos * pitchCos * rollSin) - (yawSin * pitchSin * rollCos);
-    orientationOut.y = (pitchSin * yawCos * rollCos) + (yawSin * pitchCos * rollSin);
-    orientationOut.z = (yawSin * pitchCos * rollCos) - (pitchSin * yawCos * rollSin);
+    orientationOut.w = (((a * cr) - b0) - d0) - (c * sr);
+    orientationOut.x = (((d * sr) + (b * cr)) + a0) - c0;
+    orientationOut.y = (((d * cr) + c0) + a0) - (b * sr);
+    orientationOut.z = (((c * cr) + (a * sr)) + b0) - d0;
     return orientationOut;
   }
 
