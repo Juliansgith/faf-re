@@ -104,16 +104,24 @@ namespace
     return *static_cast<float*>(valueStorage);
   }
 
-  [[nodiscard]] float NormalizeAnglePositive(const float angleRadians) noexcept
+  /**
+   * Address: 0x0062FB50 (FUN_0062FB50)
+   *
+   * What it does:
+   * Wraps an angle into [-pi, pi]: fmod by 2pi (the float 2pi widened to
+   * double, through the CRT's x87 fprem - exact), rounded to float, then one
+   * 2pi step back into range.
+   */
+  [[nodiscard]] float WrapAngleSigned(const float angleRadians) noexcept
   {
-    float normalized = angleRadians;
-    while (normalized < 0.0f) {
-      normalized += kTwoPi;
+    const float wrapped = static_cast<float>(std::fmod(static_cast<double>(angleRadians), static_cast<double>(kTwoPi)));
+    if (-kPi > wrapped) {
+      return wrapped + kTwoPi;
     }
-    while (normalized >= kTwoPi) {
-      normalized -= kTwoPi;
+    if (wrapped > kPi) {
+      return wrapped - kTwoPi;
     }
-    return normalized;
+    return wrapped;
   }
 
   [[nodiscard]] Wm3::Vec3f BuildCurrentFallAxis(const Wm3::Quatf& orientation) noexcept
@@ -128,29 +136,25 @@ namespace
     };
   }
 
-  [[nodiscard]] Wm3::Quatf BuildRotationDeltaFromAxes(const Wm3::Vec3f& targetAxisRaw, const Wm3::Vec3f& currentAxisRaw)
+  /**
+   * Address: 0x004EDAA0 (FUN_004EDAA0)
+   *
+   * What it does:
+   * Normalizes a quaternion in place: length from ((w*w + x*x) + y*y) + z*z,
+   * every lane scaled by 1/length; left untouched when the length is not above
+   * 1e-6.
+   */
+  void NormalizeQuatKeepDegenerate(Wm3::Quatf& q) noexcept
   {
-    Wm3::Vec3f targetAxis = targetAxisRaw;
-    Wm3::Vec3f currentAxis = currentAxisRaw;
-
-    if (Wm3::Vec3f::Normalize(&targetAxis) <= 1.0e-6f || Wm3::Vec3f::Normalize(&currentAxis) <= 1.0e-6f) {
-      return Wm3::Quatf::Identity();
+    const float length = std::sqrt((((q.w * q.w) + (q.x * q.x)) + (q.y * q.y)) + (q.z * q.z));
+    if (!(length > 1.0e-6f)) {
+      return;
     }
-
-    const float dot = Wm3::Vec3f::Dot(currentAxis, targetAxis);
-    if (dot < -0.9999f) {
-      Wm3::Vec3f fallbackAxis = Wm3::Vec3f::Cross(currentAxis, Wm3::Vec3f{1.0f, 0.0f, 0.0f});
-      if (Wm3::Vec3f::LengthSq(fallbackAxis) <= 1.0e-6f) {
-        fallbackAxis = Wm3::Vec3f::Cross(currentAxis, Wm3::Vec3f{0.0f, 0.0f, 1.0f});
-      }
-      Wm3::Vec3f::Normalize(&fallbackAxis);
-      return Wm3::Quatf(0.0f, fallbackAxis.x, fallbackAxis.y, fallbackAxis.z);
-    }
-
-    const Wm3::Vec3f cross = Wm3::Vec3f::Cross(currentAxis, targetAxis);
-    Wm3::Quatf delta{1.0f + dot, cross.x, cross.y, cross.z};
-    delta.Normalize();
-    return delta;
+    const float inverseLength = 1.0f / length;
+    q.w *= inverseLength;
+    q.x *= inverseLength;
+    q.y *= inverseLength;
+    q.z *= inverseLength;
   }
 
   /**
@@ -306,7 +310,7 @@ namespace moho
     if (mFallAngleRadians < 0.0f) {
       mFallAngleRadians *= -1.0f;
       mFallDepth *= -1.0f;
-      mFallDirectionRadians = NormalizeAnglePositive(mFallDirectionRadians + kPi);
+      mFallDirectionRadians = WrapAngleSigned(mFallDirectionRadians + kPi);
     }
 
     if (mFallAngleRadians > kHalfPi) {
@@ -314,18 +318,23 @@ namespace moho
       mFallDepth = 0.0f;
     }
 
+    // 0x006952A9-0x006953B1: the target up axis keeps sin/cos of the fall
+    // direction and cos of the elevation on the x87 stack, so its x and z lanes
+    // are each one rounding of the product of the unrounded results.
     const float elevationAngle = mFallAngleRadians - kHalfPi;
-    const float sinTilt = msvc8::cos(elevationAngle);
     const Wm3::Vec3f targetAxis{
-      msvc8::sin(mFallDirectionRadians) * sinTilt,
+      msvc8::SinTimesCos(mFallDirectionRadians, elevationAngle),
       -msvc8::sin(elevationAngle),
-      msvc8::cos(mFallDirectionRadians) * sinTilt,
+      msvc8::CosTimesCos(mFallDirectionRadians, elevationAngle),
     };
 
     VTransform pendingTransform = entity->mVarDat.mCurTransform;
 
+    // 0x006953B5: the same shortest-arc helper COORDS_Tilt uses (FUN_0050CB50),
+    // from the current up axis onto the target, neither normalized first.
     const Wm3::Vec3f currentAxis = BuildCurrentFallAxis(pendingTransform.orient_);
-    Wm3::Quatf delta = BuildRotationDeltaFromAxes(targetAxis, currentAxis);
+    Wm3::Quatf delta{};
+    (void)BuildTiltShortestArcDelta(targetAxis, &delta, currentAxis);
 
     const float quatDeltaMagnitude = std::fabs(std::fabs(delta.w) - 1.0f);
     if (quatDeltaMagnitude <= kQuatUpdateThreshold) {
@@ -345,8 +354,17 @@ namespace moho
       }
     }
 
-    pendingTransform.orient_ = MultiplyQuat(delta, pendingTransform.orient_);
-    pendingTransform.orient_.Normalize();
+    // 0x0069546A-0x0069555C: delta * orientation in the binary's association
+    // order, then FUN_004EDAA0's normalize.
+    const Wm3::Quatf& d = delta;
+    const Wm3::Quatf o = pendingTransform.orient_;
+    Wm3::Quatf rotated{};
+    rotated.w = (((o.w * d.w) - (d.x * o.x)) - (d.y * o.y)) - (d.z * o.z);
+    rotated.x = (((d.y * o.z) + (d.x * o.w)) + (o.x * d.w)) - (d.z * o.y);
+    rotated.y = (((d.z * o.x) + (d.y * o.w)) + (o.y * d.w)) - (d.x * o.z);
+    rotated.z = (((d.x * o.y) + (d.z * o.w)) + (o.z * d.w)) - (d.y * o.x);
+    NormalizeQuatKeepDegenerate(rotated);
+    pendingTransform.orient_ = rotated;
     entity->SetPendingTransform(pendingTransform, 1.0f);
   }
 

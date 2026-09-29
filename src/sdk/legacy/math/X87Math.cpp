@@ -9,6 +9,8 @@ extern "C" float __cdecl msvc8_x87_sinf(float x);
 extern "C" float __cdecl msvc8_x87_cosf(float x);
 extern "C" float __cdecl msvc8_x87_tanf(float x);
 extern "C" float __cdecl msvc8_x87_atan2f(float y, float x);
+extern "C" float __cdecl msvc8_x87_sin_times_cos(float sinArg, float cosArg);
+extern "C" float __cdecl msvc8_x87_cos_times_cos(float firstArg, float secondArg);
 #endif
 
 namespace msvc8
@@ -112,6 +114,58 @@ namespace msvc8
   float atanf(const float x) noexcept
   {
     return atan2f(x, 1.0f);
+  }
+
+  float SinTimesCos(const float sinArg, const float cosArg) noexcept
+  {
+#if defined(_M_IX86)
+    float result;
+    unsigned short savedControl;
+    unsigned short singleControl;
+    __asm {
+      fnstcw savedControl
+      mov ax, savedControl
+      and ax, 0xFCFF       // precision control: 24 bits
+      mov singleControl, ax
+      fldcw singleControl
+      fld sinArg
+      fsin
+      fld cosArg
+      fcos
+      fmulp st(1), st(0)   // the unrounded products, rounded once to single
+      fstp result
+      fldcw savedControl
+    }
+    return result;
+#else
+    return msvc8_x87_sin_times_cos(sinArg, cosArg);
+#endif
+  }
+
+  float CosTimesCos(const float firstArg, const float secondArg) noexcept
+  {
+#if defined(_M_IX86)
+    float result;
+    unsigned short savedControl;
+    unsigned short singleControl;
+    __asm {
+      fnstcw savedControl
+      mov ax, savedControl
+      and ax, 0xFCFF
+      mov singleControl, ax
+      fldcw singleControl
+      fld firstArg
+      fcos
+      fld secondArg
+      fcos
+      fmulp st(1), st(0)
+      fstp result
+      fldcw savedControl
+    }
+    return result;
+#else
+    return msvc8_x87_cos_times_cos(firstArg, secondArg);
+#endif
   }
 
   float asinf(const float x) noexcept
