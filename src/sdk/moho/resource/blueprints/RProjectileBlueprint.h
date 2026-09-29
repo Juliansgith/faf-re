@@ -209,6 +209,25 @@ namespace moho
     [[nodiscard]] Wm3::Vector3f GetAngularVelocity(CRandomStream* randomStream) const;
 
     /**
+     * Address: 0x0051C400 (FUN_0051C400)
+     *
+     * What it does:
+     * Samples one launch offset: `Physics.PositionX/Y/Z` plus a symmetric
+     * `PositionX/Y/ZRange` spread per lane (one twister word per lane, x, y, z).
+     */
+    [[nodiscard]] Wm3::Vector3f GetRandomLaunchOffset(CRandomStream* randomStream) const;
+
+    /**
+     * Address: 0x0051C510 (FUN_0051C510, func_RandomDirection)
+     *
+     * What it does:
+     * Samples one launch direction: `Physics.DirectionX/Y/Z` plus a symmetric
+     * `DirectionX/Y/ZRange` spread per lane (one twister word per lane, x, y,
+     * z). Not normalized.
+     */
+    [[nodiscard]] Wm3::Vector3f GetRandomLaunchDirection(CRandomStream* randomStream) const;
+
+    /**
      * Address: 0x0051C680 (FUN_0051C680, ?GetRandomInitialSpeed@RProjectileBlueprint@Moho@@QBEMPAVCRandomStream@2@@Z)
      * Mangled: ?GetRandomInitialSpeed@RProjectileBlueprint@Moho@@QBEMPAVCRandomStream@2@@Z
      *

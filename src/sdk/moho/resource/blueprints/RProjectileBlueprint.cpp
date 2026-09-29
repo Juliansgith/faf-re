@@ -19,33 +19,14 @@ namespace moho
   namespace
   {
     /**
-     * Address: 0x0051C510 (FUN_0051C510, func_RandomDirection)
-     *
-     * What it does:
-     * Builds one randomized launch direction from blueprint direction lanes
-     * (`DirectionX/Y/Z`) plus symmetric per-axis ranges.
+     * The spread every blueprint sampler below inlines: `CRandomStream::FRand(-range, range)`
+     * (0x0051B5C0) -- `-0.0f - range` for the low end, then x87 under `_PC_24` with the twister word
+     * multiplied unrounded -- to which the caller adds its base lane. A zero range still draws its
+     * twister word.
      */
-    [[nodiscard]] Wm3::Vector3f* BuildRandomDirectionVector(
-      CRandomStream* const randomStream, Wm3::Vector3f* const destination, const RProjectileBlueprint* const blueprint
-    )
-    {
-      const auto sampleSymmetricOffset = [randomStream](const float range) {
-        const float unit = CMersenneTwister::ToUnitFloat(randomStream->twister.NextUInt32());
-        return (-range) + ((range - (-range)) * unit);
-      };
-
-      destination->x = sampleSymmetricOffset(blueprint->Physics.DirectionXRange) + blueprint->Physics.DirectionX;
-      destination->y = sampleSymmetricOffset(blueprint->Physics.DirectionYRange) + blueprint->Physics.DirectionY;
-      destination->z = sampleSymmetricOffset(blueprint->Physics.DirectionZRange) + blueprint->Physics.DirectionZ;
-      return destination;
-    }
-
     [[nodiscard]] float SampleSymmetricRange(CRandomStream* const randomStream, const float range)
     {
-      const float minValue = -range;
-      const float maxValue = range;
-      const float unit = CMersenneTwister::ToUnitFloat(randomStream->twister.NextUInt32());
-      return minValue + ((maxValue - minValue) * unit);
+      return randomStream->FRand(-range, range);
     }
 
     /**
@@ -222,6 +203,38 @@ namespace moho
     angularVelocity.y = randomAxis.y * angularSpeed;
     angularVelocity.z = randomAxis.z * angularSpeed;
     return angularVelocity;
+  }
+
+  /**
+   * Address: 0x0051C400 (FUN_0051C400)
+   *
+   * What it does:
+   * Samples one launch offset: `Physics.PositionX/Y/Z` plus a symmetric
+   * `PositionX/Y/ZRange` spread per lane, drawn x, y, z.
+   */
+  Wm3::Vector3f RProjectileBlueprint::GetRandomLaunchOffset(CRandomStream* const randomStream) const
+  {
+    Wm3::Vector3f offset{};
+    offset.x = SampleSymmetricRange(randomStream, Physics.PositionXRange) + Physics.PositionX;
+    offset.y = SampleSymmetricRange(randomStream, Physics.PositionYRange) + Physics.PositionY;
+    offset.z = SampleSymmetricRange(randomStream, Physics.PositionZRange) + Physics.PositionZ;
+    return offset;
+  }
+
+  /**
+   * Address: 0x0051C510 (FUN_0051C510, func_RandomDirection)
+   *
+   * What it does:
+   * Samples one launch direction: `Physics.DirectionX/Y/Z` plus a symmetric
+   * `DirectionX/Y/ZRange` spread per lane, drawn x, y, z. Not normalized.
+   */
+  Wm3::Vector3f RProjectileBlueprint::GetRandomLaunchDirection(CRandomStream* const randomStream) const
+  {
+    Wm3::Vector3f direction{};
+    direction.x = SampleSymmetricRange(randomStream, Physics.DirectionXRange) + Physics.DirectionX;
+    direction.y = SampleSymmetricRange(randomStream, Physics.DirectionYRange) + Physics.DirectionY;
+    direction.z = SampleSymmetricRange(randomStream, Physics.DirectionZRange) + Physics.DirectionZ;
+    return direction;
   }
 
   /**

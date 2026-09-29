@@ -12265,7 +12265,11 @@ int moho::cfunc_RandomSimL(LuaPlus::LuaState* const state)
   }
 
   if (argumentCount == 0) {
-    const double value = static_cast<double>(sim->mRngState->twister.NextUInt32()) * 2.3283064e-10;
+    // 0x00759143-0x00759165: fild the word (+2^32 when it loads negative), fmul by the float 2^-32 under
+    // _PC_24, fstp to float. The earlier `double(word) * 2.3283064e-10` used a constant that is not 2^-32
+    // and landed one float low for about one draw in a hundred.
+    constexpr float kInvTwoTo32f = 2.3283064365386962890625e-10f;
+    const float value = msvc8::MulTwisterWord(kInvTwoTo32f, sim->mRngState->twister.NextUInt32());
     lua_pushnumber(rawState, value);
     return 1;
   }
