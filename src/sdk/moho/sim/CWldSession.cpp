@@ -1,4 +1,5 @@
 #include "CWldSession.h"
+#include "moho/agent/AgentBridge.h"
 
 #include "platform/WxWidgets.h"
 #include <wx/app.h>
@@ -8465,10 +8466,14 @@ namespace moho
 
     ISTIDriver* const simDriver = sSimDriver.get();
 
+    // Engine addition: an unpaced agent-bridge session runs with the wind too, or the
+    // drain below would throttle the sim back to the requested game speed.
+    const bool runWithTheWind = wld_RunWithTheWind || AGENT_UserDrainsAllBeats();
+
     // Interpolation between ticks. Running with the wind means "do not
     // interpolate, just consume beats", so the fraction is pinned at a whole
     // tick and the drain below never waits for the clock.
-    if (mLastBeatWasTick == 0 || wld_RunWithTheWind) {
+    if (mLastBeatWasTick == 0 || runWithTheWind) {
       mTimeSinceLastTick = 1.0f;
     } else {
       mTimeSinceLastTick += WLD_GetSimRate() * deltaSeconds * 10.0f;
@@ -8480,15 +8485,17 @@ namespace moho
     const std::int32_t targetTick = mGameTick + static_cast<std::int32_t>(std::floor(mTimeSinceLastTick));
 
     // Drain the driver's sync queue. Bounded at 100 beats so a burst after a
-    // stall cannot make one frame arbitrarily long.
+    // stall cannot make one frame arbitrarily long (engine addition: scaled up
+    // for an unpaced agent-bridge session).
+    const std::int32_t maxBeatsPerFrame = AGENT_ScaleRunAheadLimit(100);
     std::int32_t beatsApplied = 0;
-    for (; beatsApplied < 100; ++beatsApplied) {
+    for (; beatsApplied < maxBeatsPerFrame; ++beatsApplied) {
       if (mReplayIsPaused) {
         // A paused replay still applies beats until it lands on a tick.
         if (mLastBeatWasTick != 0) {
           break;
         }
-      } else if (mGameTick >= targetTick && !wld_RunWithTheWind) {
+      } else if (mGameTick >= targetTick && !runWithTheWind) {
         break;
       }
 
@@ -8509,7 +8516,7 @@ namespace moho
 
     // Whatever the drain consumed comes back off the interpolation fraction, so
     // the render clock does not run ahead of the sim clock.
-    if (!wld_RunWithTheWind) {
+    if (!runWithTheWind) {
       const float remainder = mTimeSinceLastTick - static_cast<float>(mGameTick - tickAtFrameStart);
       mTimeSinceLastTick = std::max(0.0f, std::min(remainder, 1.0f));
     }
@@ -13698,8 +13705,9 @@ namespace moho
       return 1.0f;
     }
 
-    const float requestedSimScale =
-      static_cast<float>(std::pow(10.0, static_cast<double>(clientManager->GetSimRate()) * 0.1));
+    // Engine addition: interpolate at the agent bridge's pacing rate when it sets one.
+    const int simRate = AGENT_ResolvePacingSimRate(clientManager->GetSimRate());
+    const float requestedSimScale = static_cast<float>(std::pow(10.0, static_cast<double>(simRate) * 0.1));
 
     const float skewRateMin = 1.0f / wld_SkewRateAdjustMax;
     const float skewRateSample =
