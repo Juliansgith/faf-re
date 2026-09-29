@@ -7437,18 +7437,7 @@ namespace moho
    * What it does:
    * Publishes the `MotorFallDown:Whack(nx,ny,nz,f,dobreak)` Lua binder.
    */
-  CScrLuaInitForm* func_MotorFallDownWhack_LuaFuncDef()
-  {
-    static CScrLuaBinder binder(
-      SimLuaInitSet(),
-      kMotorFallDownWhackName,
-      &cfunc_MotorFallDownWhack,
-      &CScrLuaMetatableFactory<MotorFallDown>::Instance(),
-      "MotorFallDown",
-      kMotorFallDownWhackHelpText
-    );
-    return &binder;
-  }
+  // func_MotorFallDownWhack_LuaFuncDef is defined once, in entity/MotorFallDown.cpp.
 
   /**
    * Address: 0x006969E0 (FUN_006969E0, cfunc_EntitySinkAway)

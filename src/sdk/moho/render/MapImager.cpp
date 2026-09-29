@@ -239,16 +239,7 @@ void MapImager::UpdateMeshStances()
  * Toggles global skeleton-debug rendering and mirrors that bool lane into the
  * active simulation-driver sync-filter option flag when present.
  */
-void REN_ShowSkeletons()
-{
-  extern bool ren_ShowSkeletons;
-  const bool showSkeletons = !ren_ShowSkeletons;
-  ren_ShowSkeletons = showSkeletons;
-
-  if (ISTIDriver* const activeDriver = WLD_GetDriver(); activeDriver != nullptr) {
-    activeDriver->SetSyncFilterOptionFlag(showSkeletons);
-  }
-}
+// REN_ShowSkeletons is defined once, as moho::REN_ShowSkeletons in app/WxRuntimeTypes.cpp.
 
 /**
  * Address: 0x007FA1E0 (FUN_007FA1E0, sub_7FA1E0)

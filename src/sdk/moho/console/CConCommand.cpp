@@ -1996,10 +1996,7 @@ void moho::UI_DumpControlsUnderCursor(const msvc8::vector<msvc8::string>& args)
  * What it does:
  * Requests application main-loop exit through the active wx app object.
  */
-void moho::WIN_AppRequestExit()
-{
-  wxTheApp->ExitMainLoop();
-}
+// WIN_AppRequestExit is defined once, in app/WinApp.cpp.
 
 /**
  * Address: 0x004F3C30 (FUN_004F3C30, Moho::WIN_ToggleLogDialog)
