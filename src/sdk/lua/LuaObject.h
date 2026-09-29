@@ -3117,6 +3117,47 @@ namespace LuaPlus
 			}
 		}
 
+		/**
+		 * operator() through the *unprotected* call (LuaCallUnprotected, the binary's lua_call at
+		 * 0x0090D400): a script error unwinds to the caller as a C++ exception instead of coming back
+		 * as the "result". The Lua stack top is restored either way. The binary's LuaFunction call
+		 * operators use this form (e.g. LuaFunction<int> at 0x006241B0); `lua_call` in this tree maps
+		 * to the protected call, so sites that depend on errors propagating use this instead.
+		 */
+		template<class... Ts>
+		Ret CallRaising(const Ts&... args) const {
+			LuaState* const st = GetActiveState();
+			if (!st) {
+				if constexpr (std::is_void_v<Ret>) {
+					return;
+				} else {
+					return Ret{};
+				}
+			}
+
+			lua_State* const L = st->GetCState();
+			struct TopRestorer {
+				lua_State* state;
+				int top;
+				~TopRestorer() { lua_settop(state, top); }
+			} const restore{L, lua_gettop(L)};
+
+			PushStack(L);
+			(LuaPush(L, args), ...);
+			constexpr int kResultCount = std::is_void_v<Ret> ? 0 : 1;
+			LuaCallUnprotected(L, sizeof...(Ts), kResultCount);
+
+			if constexpr (std::is_void_v<Ret>) {
+				return;
+			} else if constexpr (std::is_same_v<Ret, bool>) {
+				return lua_toboolean(L, -1) != 0;
+			} else if constexpr (std::is_arithmetic_v<Ret>) {
+				return static_cast<Ret>(lua_tonumber(L, -1));
+			} else {
+				return Ret{};
+			}
+		}
+
 		void Call(LuaObject& obj, const char* s, const char* a4, const char* a5) const {
 			(void)(*this)(obj, s, a4, a5);
 		}

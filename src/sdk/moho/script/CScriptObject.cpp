@@ -966,7 +966,12 @@ int CScriptObject::TaskTick()
   }
 
   LuaPlus::LuaFunction<int> taskTick{taskTickCallback};
-  return taskTick(mLuaObj);
+  // 0x006241B0 (LuaFunction<int>::operator()) calls the unprotected lua_call (0x0090D400), so a
+  // TaskTick error unwinds to CUnitScriptTask::Execute's handler, which logs it and ends the task.
+  // Through the protected call the error message came back as the "result", converted to 0 --
+  // TASKSTATUS.Repeat -- and a TaskTick that errored every time (e.g. EnhanceTask) spun forever
+  // inside a single tick.
+  return taskTick.CallRaising(mLuaObj);
 }
 
 /**
