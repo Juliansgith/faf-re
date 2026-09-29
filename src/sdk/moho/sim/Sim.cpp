@@ -23403,11 +23403,35 @@ moho::CScrLuaInitForm* moho::func_CreateResourceDeposit_LuaFuncDef()
  * Reads `(x, z, radius, type)` from Lua and returns an array of deposits:
  * `{ x1, z1, x2, z2, type, dist }`.
  */
+namespace
+{
+  int PushDepositsAroundPoint(lua_State* luaContext, moho::Sim* sim);
+} // namespace
+
 int moho::cfunc_GetDepositsAroundPoint(lua_State* const luaContext)
 {
   if (!luaContext) {
     return 0;
   }
+  return PushDepositsAroundPoint(luaContext, ResolveGlobalSim(luaContext));
+}
+
+/**
+ * Engine addition (see Sim.h): user-lane `GetDepositsAroundPoint`, reading `Sim::sInstance`.
+ */
+int moho::cfunc_GetDepositsAroundPointUser(lua_State* const luaContext)
+{
+  if (!luaContext) {
+    return 0;
+  }
+  return PushDepositsAroundPoint(luaContext, Sim::sInstance);
+}
+
+namespace
+{
+int PushDepositsAroundPoint(lua_State* const luaContext, moho::Sim* const sim)
+{
+  using namespace moho;
 
   const float x = static_cast<float>(lua_tonumber(luaContext, 1));
   const float z = static_cast<float>(lua_tonumber(luaContext, 2));
@@ -23421,7 +23445,6 @@ int moho::cfunc_GetDepositsAroundPoint(lua_State* const luaContext)
 
   lua_newtable(luaContext);
 
-  Sim* const sim = ResolveGlobalSim(luaContext);
   CSimResources* const resources = sim ? sim->mSimResources.px : nullptr;
   if (!resources) {
     return 1;
@@ -23436,17 +23459,19 @@ int moho::cfunc_GetDepositsAroundPoint(lua_State* const luaContext)
 
     lua_pushnumber(luaContext, static_cast<lua_Number>(i + 1u));
     lua_newtable(luaContext);
-    LuaPushNumberField(luaContext, "x1", deposit.footprintRect.x0);
-    LuaPushNumberField(luaContext, "z1", deposit.footprintRect.z0);
-    LuaPushNumberField(luaContext, "x2", deposit.footprintRect.x1);
-    LuaPushNumberField(luaContext, "z2", deposit.footprintRect.z1);
-    LuaPushNumberField(luaContext, "type", static_cast<int>(deposit.depositType));
-    LuaPushNumberField(luaContext, "dist", hit.centerDistance);
+    // Field names as FAF's patch publishes them (section/SimGetDepositsAroundPoint.cpp).
+    LuaPushNumberField(luaContext, "X1", deposit.footprintRect.x0);
+    LuaPushNumberField(luaContext, "Z1", deposit.footprintRect.z0);
+    LuaPushNumberField(luaContext, "X2", deposit.footprintRect.x1);
+    LuaPushNumberField(luaContext, "Z2", deposit.footprintRect.z1);
+    LuaPushNumberField(luaContext, "Type", static_cast<int>(deposit.depositType));
+    LuaPushNumberField(luaContext, "Dist", hit.centerDistance);
     lua_settable(luaContext, -3);
   }
 
   return 1;
 }
+} // namespace
 
 /**
  * Address: 0x0128CC35 (the sim-lane `SessionIsReplay` body; IDA's
@@ -23646,6 +23671,51 @@ int moho::cfunc_SetCommandSourceSim(lua_State* const luaContext)
 
   SetArmyValidCommandSourceBit(*army, sourceIndex, enabled);
   return 0;
+}
+
+/**
+ * Engine addition (see Sim.h): user-lane `GetDepositsAroundPoint` binder.
+ */
+moho::CScrLuaInitForm* moho::func_GetDepositsAroundPointUser_LuaFuncDef()
+{
+  static CScrLuaBinder binder(
+    UserLuaInitSet(),
+    "GetDepositsAroundPoint",
+    &moho::cfunc_GetDepositsAroundPointUser,
+    nullptr,
+    "<global>",
+    kGetDepositsAroundPointHelpText
+  );
+  return &binder;
+}
+
+/**
+ * Engine addition (see Sim.h).
+ */
+int moho::cfunc_SetNavigatorPersonalPosMaxDistance(lua_State* const luaContext)
+{
+  if (!luaContext) {
+    return 0;
+  }
+  const bool hasValue = lua_gettop(luaContext) >= 1 && lua_isnumber(luaContext, 1) != 0;
+  gNavPersonalPosMaxDistance = hasValue ? static_cast<float>(lua_tonumber(luaContext, 1)) : 50.0f;
+  return 0;
+}
+
+/**
+ * Engine addition (see Sim.h): `SetNavigatorPersonalPosMaxDistance` binder.
+ */
+moho::CScrLuaInitForm* moho::func_SetNavigatorPersonalPosMaxDistance_LuaFuncDef()
+{
+  static CScrLuaBinder binder(
+    SimLuaInitSet(),
+    "SetNavigatorPersonalPosMaxDistance",
+    &moho::cfunc_SetNavigatorPersonalPosMaxDistance,
+    nullptr,
+    "<global>",
+    "SetNavigatorPersonalPosMaxDistance(distance = 50)"
+  );
+  return &binder;
 }
 
 /**
@@ -27041,6 +27111,9 @@ namespace
       (void)::moho::func_GetTimeForProfileSim_LuaFuncDef();
       (void)::moho::func_GetDepositsAroundPoint_LuaFuncDef();
       (void)::moho::func_SetCommandSourceSim_LuaFuncDef();
+      // FAF engine functions (engine additions, see Sim.h).
+      (void)::moho::func_GetDepositsAroundPointUser_LuaFuncDef();
+      (void)::moho::func_SetNavigatorPersonalPosMaxDistance_LuaFuncDef();
       (void)::moho::func_SessionIsBeingRecorded_LuaFuncDef();
       (void)::moho::func_SessionIsMultiplayer_LuaFuncDef();
       (void)::moho::func_SessionIsObservingAllowed_LuaFuncDef();

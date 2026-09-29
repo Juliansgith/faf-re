@@ -680,6 +680,8 @@ namespace moho
   int cfunc_UnitSetAutoMode(lua_State* luaContext);
   CScrLuaInitForm* func_UnitSetAutoMode_LuaFuncDef();
   int cfunc_UnitSetAutoModeL(LuaPlus::LuaState* state);
+  int cfunc_UnitForceAltFootprint(lua_State* luaContext);
+  CScrLuaInitForm* func_UnitForceAltFootprint_LuaFuncDef();
   int cfunc_UnitAddBuildRestriction(lua_State* luaContext);
   CScrLuaInitForm* func_UnitAddBuildRestriction_LuaFuncDef();
   int cfunc_UnitAddBuildRestrictionL(LuaPlus::LuaState* state);
@@ -8249,6 +8251,42 @@ int moho::cfunc_UnitSetAutoModeL(LuaPlus::LuaState* const state)
   const LuaPlus::LuaStackObject enabledArg(state, 2);
   unit->SetAutoMode(enabledArg.GetBoolean());
   return 0;
+}
+
+/**
+ * Engine addition (FAF parity, FA-Binary-Patches section/EntityGetFootprint.cpp):
+ * `Unit:ForceAltFootprint(bool)` sets the byte at SSTIEntityVariableData+0xA5, which
+ * `Entity::GetFootprint` already treats as a second "use the alt footprint" flag. The Cybran Salem
+ * destroyer script calls it when toggling between land and sea.
+ */
+int moho::cfunc_UnitForceAltFootprint(lua_State* const luaContext)
+{
+  LuaPlus::LuaState* const state = moho::SCR_ResolveBindingState(luaContext);
+  lua_State* const rawState = state->m_state;
+  const int argumentCount = lua_gettop(rawState);
+  if (argumentCount != 2) {
+    LuaPlus::LuaState::Error(state, kLuaExpectedArgsWarning, "Unit:ForceAltFootprint(bool)", 2, argumentCount);
+  }
+  const LuaPlus::LuaObject unitObject(LuaPlus::LuaStackObject(state, 1));
+  Unit* const unit = SCR_FromLua_Unit(unitObject);
+  unit->mVarDat.mUsingAltFootprintSecondary = lua_toboolean(rawState, 2) != 0 ? 1u : 0u;
+  return 0;
+}
+
+/**
+ * Engine addition: publishes `Unit:ForceAltFootprint(bool)`.
+ */
+CScrLuaInitForm* moho::func_UnitForceAltFootprint_LuaFuncDef()
+{
+  static CScrLuaBinder binder(
+    SimLuaInitSet(),
+    "ForceAltFootprint",
+    &moho::cfunc_UnitForceAltFootprint,
+    &CScrLuaMetatableFactory<Unit>::Instance(),
+    kUnitLuaClassName,
+    "Unit:ForceAltFootprint(bool)"
+  );
+  return &binder;
 }
 
 /**
@@ -17496,6 +17534,7 @@ namespace
       (void)::moho::func_UnitSetFireState_LuaFuncDef();
       (void)::moho::func_UnitGetFireState_LuaFuncDef();
       (void)::moho::func_UnitSetAutoMode_LuaFuncDef();
+      (void)::moho::func_UnitForceAltFootprint_LuaFuncDef();
       (void)::moho::func_UnitAddBuildRestriction_LuaFuncDef();
       (void)::moho::func_UnitRemoveBuildRestriction_LuaFuncDef();
       (void)::moho::func_UnitRestoreBuildRestrictions_LuaFuncDef();
