@@ -1306,6 +1306,18 @@ namespace moho
    * direction rotated 90 degrees about Y) and reports whether any nearby mobile
    * unit of a different formation-layer that is not an ignorable source unit
    * lies inside the swept volume.
+   *
+   * The binary collects every unit in the box first (CollectEntitiesInBox:
+   * cell gather, AABB prefilter, then the full box-box contact manifold per
+   * candidate) and only then drops the ones that cannot block - air and sub
+   * layers, the same formation, ignorable source units (the mover itself,
+   * anything that moved this tick, structures, ...). The answer is only
+   * "does any candidate pass every test", and every test is a pure read, so
+   * here the cheap unit tests run first and the box test only for candidates
+   * that would block; the first one that also collides ends the scan. Same
+   * candidates, same tests, same answer; in large battles the contact
+   * manifolds for units that were thrown away anyway were most of the sim's
+   * collision time.
    */
   [[nodiscard]] bool SweptPathBlockedByUnit(
     COGrid& grid, Unit* const unit, const Wm3::Vector3f& fromCenter, const Wm3::Vector3f& toCenter, const int mode)
@@ -1341,12 +1353,23 @@ namespace moho
       1000.0f,
       halfLength);
 
-    gpg::core::FastVectorN<CollisionResult, 10> hits{};
-    grid.CollectEntitiesInBox(hits, ENTITYTYPE_Unit, sweptBox);
+    // CollectEntitiesInBox's gather and AABB prefilter, unchanged.
+    const Wm3::AxisAlignedBox3f queryBounds = BuildAxisAlignedBoundsFromOrientedBox(sweptBox);
+    gpg::core::FastVectorN<Entity*, 20> gatheredEntities{};
+    const int gatheredCount = grid.GatherUnmarkedEntities(queryBounds, ENTITYTYPE_Unit, gatheredEntities);
 
-    for (const CollisionResult& hit : hits) {
-      Entity* const source = hit.sourceEntity;
-      Unit* const candidate = source ? source->IsUnit() : nullptr;
+    for (int index = 0; index < gatheredCount; ++index) {
+      Entity* const source = gatheredEntities.start_[index];
+      if (source == nullptr || !AxisAlignedBoundsOverlapEntityBounds(queryBounds, *source)) {
+        continue;
+      }
+      CColPrimitiveBase* const collisionPrimitive = source->CollisionExtents;
+      if (collisionPrimitive == nullptr) {
+        continue;
+      }
+
+      // The binary's post-collection filters.
+      Unit* const candidate = source->IsUnit();
       if (candidate == nullptr) {
         continue;
       }
@@ -1354,7 +1377,13 @@ namespace moho
       if (candidateLayer == LAYER_Air || candidateLayer == LAYER_Sub) {
         continue;
       }
-      if (!unit->IsSameFormationLayerWith(candidate) && !func_IsSourceUnit(mode, *unit, candidate)) {
+      if (unit->IsSameFormationLayerWith(candidate) || func_IsSourceUnit(mode, *unit, candidate)) {
+        continue;
+      }
+
+      // CollectEntitiesInBox's box test, for a candidate that blocks if it collides.
+      CollisionResult collisionResult{};
+      if (collisionPrimitive->CollideBox(&sweptBox, &collisionResult)) {
         return true;
       }
     }
