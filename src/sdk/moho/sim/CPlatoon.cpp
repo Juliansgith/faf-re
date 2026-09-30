@@ -2728,21 +2728,26 @@ namespace moho
       const char* const squadClassName = squadClassNameObject.GetString();
       SCR_GetEnum(state, squadClassName, enumRef);
 
+      // The units come from the platoon FormPlatoon is called on (the army pool): 0x0072DD5B /
+      // 0x0072DD8D / 0x0072E015 / 0x0072E044 load `this` ([esp+10h], the platoon unwrapped from
+      // argument 1) as ecx for GetUnassignedUnitsWithBP (0x00725730) / GetUnassignedUnitsInCategory
+      // (0x007256E0). Asking the brand-new platoon, whose only squads are the ones created below,
+      // always found nothing: every AI platoon came out empty.
       EntitySetTemplate<Unit> ref{};
       if (argumentCount <= 4) {
         if (unitFilter.IsString()) {
-          newPlatoon->GetUnassignedUnitsWithBP(unitFilter.GetString(), requiredSize, ref);
+          platoon->GetUnassignedUnitsWithBP(unitFilter.GetString(), requiredSize, ref);
         } else {
           const EntityCategorySet* const category = func_GetCObj_EntityCategory(unitFilter);
-          newPlatoon->GetUnassignedUnitsInCategory(category, requiredSize, ref);
+          platoon->GetUnassignedUnitsInCategory(category, requiredSize, ref);
         }
       } else {
         EntitySetTemplate<Unit> candidates{};
         if (unitFilter.IsString()) {
-          newPlatoon->GetUnassignedUnitsWithBP(unitFilter.GetString(), 1000, candidates);
+          platoon->GetUnassignedUnitsWithBP(unitFilter.GetString(), 1000, candidates);
         } else {
           const EntityCategorySet* const category = func_GetCObj_EntityCategory(unitFilter);
-          newPlatoon->GetUnassignedUnitsInCategory(category, 1000, candidates);
+          platoon->GetUnassignedUnitsInCategory(category, 1000, candidates);
         }
 
         const LuaPlus::LuaObject centerObject(LuaPlus::LuaStackObject(state, 4));
@@ -2807,7 +2812,12 @@ namespace moho
       newPlatoon->AppendUnitsToSquad(squad, ref);
     }
 
-    newPlatoon->mLuaUnitList.PushStack(state);
+    // 0x0072E17C..0x0072E18C: `lea ecx,[newPlatoon+20h]` -- the new platoon's own Lua object
+    // (CScriptObject::mLuaObj), which is what the AI keeps as the platoon handle. Pushing the
+    // cached unit list (+0xF4, unbuilt here, so unbound) raised "state->l_G ==
+    // m_state->m_state->l_G" instead and killed the calling AI thread: every platoon form
+    // manager died at its first successful FormPlatoon.
+    newPlatoon->mLuaObj.PushStack(state);
     return 1;
   }
 
