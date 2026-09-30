@@ -813,15 +813,28 @@ namespace
     // 0x005D38CA..0x005D3921: sphere {owner position, query radius}, unit mask
     // 0x100, through COGrid::ForAllEntitiesIterator (0x00721FB0). The binary's
     // hit buffer is a fastvector_n of 20; the recovered signature takes 10.
+    //
+    // Engine change: the binary collects every unit the sphere query accepts
+    // and then filters them; the query's own acceptance test (an inner-box
+    // overlap or a precise sphere-primitive test, COGrid::SphereQueryAccepts)
+    // now runs after the cheap filters that do not depend on it. Every test is
+    // a pure read, and the lists come out in the same grid order with the
+    // same units: only the precise tests of units that were dropped anyway
+    // are skipped.
     const float queryRadius = ComputeCollisionQueryRadius(*owner, steering.mPath);
     const Wm3::Sphere3f querySphere{owner->GetPosition(), queryRadius};
-    gpg::core::FastVectorN<CollisionResult, 10> collisions{};
-    owner->SimulationRef->mOGrid->ForAllEntitiesIterator(collisions, ENTITYTYPE_Unit, querySphere);
+    COGrid& grid = *owner->SimulationRef->mOGrid;
+    const COGrid::SphereQuery query(querySphere);
+    gpg::core::FastVectorN<Entity*, 20> gathered{};
+    const int gatheredCount = grid.GatherUnmarkedEntities(query.Bounds(), ENTITYTYPE_Unit, gathered);
 
     // 0x005D395D..0x005D3A29: every hit, in grid order, through the binary's filters.
-    for (const CollisionResult& hit : collisions) {
-      Entity* const entity = hit.sourceEntity;
-      Unit* const candidate = entity ? entity->IsUnit() : nullptr;
+    for (int index = 0; index < gatheredCount; ++index) {
+      Entity* const entity = gathered.start_[index];
+      if (entity == nullptr) {
+        continue;
+      }
+      Unit* const candidate = entity->IsUnit();
       if (!candidate) {
         continue;
       }
@@ -838,6 +851,11 @@ namespace
 
       CAiPathSpline* const candidatePath = candidateSteering->GetPath();
       if (candidatePath && candidatePath->mPathType == PT_2) {
+        continue;
+      }
+
+      // ForAllEntitiesIterator's acceptance test for this entity.
+      if (!query.Accepts(*entity)) {
         continue;
       }
 

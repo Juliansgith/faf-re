@@ -1423,6 +1423,43 @@ namespace moho
   }
 
   /**
+   * Engine addition: ForAllEntitiesIterator's per-entity acceptance test, so a
+   * caller that filters the gathered entities can run it after its own cheap
+   * filters (see COGrid::SphereQuery in COGrid.h).
+   */
+  COGrid::SphereQuery::SphereQuery(const Wm3::Sphere3f& sphere) noexcept
+    : mSphere(sphere)
+    , mBounds(BuildAxisAlignedBoundsFromSphere(sphere))
+    , mSmall(sphere.Radius <= 3.0f)
+  {
+    constexpr float kInnerBoundsScale = 0.70700002f;
+    const float innerRadius = sphere.Radius * kInnerBoundsScale;
+    mInnerBounds.Min.x = sphere.Center.x - innerRadius;
+    mInnerBounds.Min.y = sphere.Center.y - innerRadius;
+    mInnerBounds.Min.z = sphere.Center.z - innerRadius;
+    mInnerBounds.Max.x = sphere.Center.x + innerRadius;
+    mInnerBounds.Max.y = sphere.Center.y + innerRadius;
+    mInnerBounds.Max.z = sphere.Center.z + innerRadius;
+  }
+
+  bool COGrid::SphereQuery::Accepts(const Entity& candidate, CollisionResult* const outResult) const
+  {
+    // 0x00722171..0x0072218F: per axis `comiss innerMin, entity.Max; ja reject` and
+    // `comiss entity.Min, innerMax; ja reject` -- an AABB *overlap* test, so any entity touching
+    // the inner box is accepted without the sphere test. (This site used to test containment,
+    // which sent such entities on to `CollideSphere` and could drop hits the binary keeps.)
+    // Radii of at most 3 skip the inner box and always run the sphere test.
+    if (!mSmall && AxisAlignedBoundsOverlapEntityBounds(mInnerBounds, candidate)) {
+      return true;
+    }
+
+    CColPrimitiveBase* const collisionPrimitive = candidate.CollisionExtents;
+    CollisionResult scratch{};
+    return collisionPrimitive != nullptr &&
+      collisionPrimitive->CollideSphere(&mSphere, outResult != nullptr ? outResult : &scratch);
+  }
+
+  /**
    * Address: 0x00721FB0 (FUN_00721FB0, Moho::COGrid::ForAllEntitiesIterator)
    *
    * What it does:
@@ -1436,60 +1473,20 @@ namespace moho
     const Wm3::Sphere3f& sphere
   )
   {
-    const Wm3::AxisAlignedBox3f queryBounds = BuildAxisAlignedBoundsFromSphere(sphere);
+    const SphereQuery query(sphere);
 
     gpg::core::FastVectorN<Entity*, 20> gatheredEntities{};
-    const int gatheredCount = GatherUnmarkedEntities(queryBounds, flags, gatheredEntities);
+    const int gatheredCount = GatherUnmarkedEntities(query.Bounds(), flags, gatheredEntities);
 
     outCollisions.ResetStorageToInline();
 
+    // One result block for the whole walk, as the binary keeps it: an entity
+    // accepted by the inner-box test is pushed with whatever the last sphere
+    // test left in the other fields.
     CollisionResult collisionResult{};
-    if (sphere.Radius <= 3.0f) {
-      for (int index = 0; index < gatheredCount; ++index) {
-        Entity* const candidate = gatheredEntities.start_[index];
-        if (candidate == nullptr) {
-          continue;
-        }
-
-        CColPrimitiveBase* const collisionPrimitive = candidate->CollisionExtents;
-        if (collisionPrimitive == nullptr || !collisionPrimitive->CollideSphere(&sphere, &collisionResult)) {
-          continue;
-        }
-
-        collisionResult.sourceEntity = candidate;
-        outCollisions.PushBack(collisionResult);
-      }
-      return;
-    }
-
-    constexpr float kInnerBoundsScale = 0.70700002f;
-    const float innerRadius = sphere.Radius * kInnerBoundsScale;
-    Wm3::AxisAlignedBox3f innerBounds{};
-    innerBounds.Min.x = sphere.Center.x - innerRadius;
-    innerBounds.Min.y = sphere.Center.y - innerRadius;
-    innerBounds.Min.z = sphere.Center.z - innerRadius;
-    innerBounds.Max.x = sphere.Center.x + innerRadius;
-    innerBounds.Max.y = sphere.Center.y + innerRadius;
-    innerBounds.Max.z = sphere.Center.z + innerRadius;
-
     for (int index = 0; index < gatheredCount; ++index) {
       Entity* const candidate = gatheredEntities.start_[index];
-      if (candidate == nullptr) {
-        continue;
-      }
-
-      // 0x00722171..0x0072218F: per axis `comiss innerMin, entity.Max; ja reject` and
-      // `comiss entity.Min, innerMax; ja reject` -- an AABB *overlap* test, so any entity touching
-      // the inner box is accepted without the sphere test. (This site used to test containment,
-      // which sent such entities on to `CollideSphere` and could drop hits the binary keeps.)
-      if (AxisAlignedBoundsOverlapEntityBounds(innerBounds, *candidate)) {
-        collisionResult.sourceEntity = candidate;
-        outCollisions.PushBack(collisionResult);
-        continue;
-      }
-
-      CColPrimitiveBase* const collisionPrimitive = candidate->CollisionExtents;
-      if (collisionPrimitive == nullptr || !collisionPrimitive->CollideSphere(&sphere, &collisionResult)) {
+      if (candidate == nullptr || !query.Accepts(*candidate, &collisionResult)) {
         continue;
       }
 
