@@ -19,6 +19,9 @@ namespace moho
    *                          10 is the fastest normal game speed and 0 is real time
    *   /agenttimeout <secs>   how long to keep retrying the initial connection (default 60)
    *   /agentvfx              keep particle effects while unpaced (skipped by default then)
+   *   /agentlean             skip loading work that only feeds the renderer (strategic-icon textures,
+   *                          searches for implicit mesh material textures); for training games that are
+   *                          never drawn
    *   /agentwatchdog <secs>  if the sim thread makes no progress for this long, log the Lua
    *                          traceback, send it to the agent and exit (default 60, 0 disables)
    *
@@ -84,4 +87,13 @@ namespace moho
    * is separate from the sim's, so skipping them cannot change the game.
    */
   [[nodiscard]] bool AGENT_SkipParticleEmission();
+
+  /**
+   * True with /agentlean (and the bridge on): blueprint loading skips work that only the renderer uses --
+   * the strategic-icon textures (four per unit blueprint, created on the loader thread through the D3D
+   * device the main thread renders the loading screen with: it waits on that device's lock) and the file
+   * searches for mesh material textures a blueprint does not name. The sim reads neither, and the renderer
+   * already copes with an icon or texture that is missing.
+   */
+  [[nodiscard]] bool AGENT_SkipRenderOnlyAssets();
 } // namespace moho

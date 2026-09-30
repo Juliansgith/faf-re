@@ -60,6 +60,7 @@ namespace moho
       int speed = kDefaultAgentSpeed;
       int connectTimeoutSeconds = kDefaultConnectTimeoutSeconds;
       bool keepVisualEffects = false;
+      bool leanLoading = false;
       int watchdogSeconds = 60;
     };
 
@@ -102,6 +103,7 @@ namespace moho
         config.connectTimeoutSeconds = std::max(1, ParseIntArgument(args[0], kDefaultConnectTimeoutSeconds));
       }
       config.keepVisualEffects = CFG_GetArgOption("/agentvfx", 0, nullptr);
+      config.leanLoading = CFG_GetArgOption("/agentlean", 0, nullptr);
       if (CFG_GetArgOption("/agentwatchdog", 1, &args) && !args.empty()) {
         config.watchdogSeconds = std::max(0, ParseIntArgument(args[0], config.watchdogSeconds));
       }
@@ -1366,5 +1368,11 @@ namespace moho
   bool AGENT_SkipParticleEmission()
   {
     return AGENT_UserDrainsAllBeats() && !Config().keepVisualEffects;
+  }
+
+  bool AGENT_SkipRenderOnlyAssets()
+  {
+    const AgentBridgeConfig& config = Config();
+    return config.enabled && config.leanLoading;
   }
 } // namespace moho

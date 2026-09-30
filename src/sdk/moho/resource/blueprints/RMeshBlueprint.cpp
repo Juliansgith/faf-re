@@ -1,4 +1,5 @@
 #include "RMeshBlueprint.h"
+#include "moho/agent/AgentBridge.h"
 
 #include <algorithm>
 #include <cstring>
@@ -68,7 +69,10 @@ namespace moho
     }
 
     void ResolveExplicitOrFallbackPath(
-      msvc8::string& destination, const std::string_view sourcePath, const std::string_view fallbackName
+      msvc8::string& destination,
+      const std::string_view sourcePath,
+      const std::string_view fallbackName,
+      const bool probeFallback = true
     )
     {
       if (!destination.empty()) {
@@ -79,7 +83,7 @@ namespace moho
         return;
       }
 
-      if (ResourceFileExists(fallbackName)) {
+      if (probeFallback && ResourceFileExists(fallbackName)) {
         destination.assign_owned(fallbackName);
       }
     }
@@ -267,13 +271,18 @@ namespace moho
       }
     }
 
-    ResolveExplicitOrFallbackPath(mAlbedoName, sourcePath.view(), sourcePrefix + "_albedo.dds");
+    // Engine addition: a training game that is never drawn does not search for the material textures a
+    // blueprint leaves implicit (/agentlean; four file lookups per LOD, render-only). The mesh itself is
+    // still resolved: the sim reads its skeleton.
+    const bool probeTextures = !AGENT_SkipRenderOnlyAssets();
 
-    ResolveExplicitOrFallbackPath(mNormalsName, sourcePath.view(), sourcePrefix + "_normalsTS.dds");
+    ResolveExplicitOrFallbackPath(mAlbedoName, sourcePath.view(), sourcePrefix + "_albedo.dds", probeTextures);
 
-    ResolveExplicitOrFallbackPath(mSpecularName, sourcePath.view(), sourcePrefix + "_SpecTeam.dds");
+    ResolveExplicitOrFallbackPath(mNormalsName, sourcePath.view(), sourcePrefix + "_normalsTS.dds", probeTextures);
 
-    ResolveExplicitOrFallbackPath(mLookupName, sourcePath.view(), sourcePrefix + "_lookup.dds");
+    ResolveExplicitOrFallbackPath(mSpecularName, sourcePath.view(), sourcePrefix + "_SpecTeam.dds", probeTextures);
+
+    ResolveExplicitOrFallbackPath(mLookupName, sourcePath.view(), sourcePrefix + "_lookup.dds", probeTextures);
   }
 
   /**

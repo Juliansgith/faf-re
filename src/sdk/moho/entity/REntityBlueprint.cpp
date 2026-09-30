@@ -1,4 +1,5 @@
 #include "moho/entity/REntityBlueprint.h"
+#include "moho/agent/AgentBridge.h"
 
 #include <cmath>
 
@@ -193,6 +194,11 @@ namespace moho
     // else branch, so a blueprint naming an absolute icon path simply gets no
     // icons from here.
     if (mStrategicIconName.empty() || FILE_IsAbsolute(mStrategicIconName.c_str())) {
+      return;
+    }
+
+    // Engine addition: a training game that is never drawn skips the icon textures (/agentlean).
+    if (AGENT_SkipRenderOnlyAssets()) {
       return;
     }
 
