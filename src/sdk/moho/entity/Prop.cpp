@@ -763,7 +763,9 @@ namespace moho
         // 1:1 dual-branch push (asm 0x006FA2B8 selector on +0x279): a
         // terminated (reclaimed/killed) prop is erased immediately, otherwise
         // it is queued for deferred deletion.
-        if (mReclaimTerminated) {
+        if (syncData == nullptr) {
+          // agent training mode: no packet (AGENT_TrainingMode)
+        } else if (mReclaimTerminated) {
           syncData->mEraseIds.push_back(id_);
         } else {
           syncData->mDeleteIds.push_back(id_);

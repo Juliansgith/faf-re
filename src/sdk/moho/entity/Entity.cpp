@@ -251,6 +251,9 @@ namespace
     const moho::SCreateEntityParams& params
   )
   {
+    if (syncData == nullptr) { // agent training mode: no packet (AGENT_TrainingMode)
+      return nullptr;
+    }
     syncData->mNewEntities.push_back(params);
     return &syncData->mNewEntities.back();
   }
@@ -3133,7 +3136,9 @@ namespace moho
    */
   void Entity::DestroyInterface(SSyncData* const syncData)
   {
-    syncData->mDeleteIds.push_back(id_);
+    if (syncData != nullptr) { // agent training mode: no packet (AGENT_TrainingMode)
+      syncData->mDeleteIds.push_back(id_);
+    }
     mInterfaceCreated = 0u;
   }
 

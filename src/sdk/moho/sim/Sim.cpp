@@ -5537,10 +5537,17 @@ void Sim::Sync(const SSyncFilter& filter, SSyncData*& outSyncData)
   // both count into `Sync_Entity_Count`. The incremental walk advances to the
   // successor BEFORE dispatching (`mov esi, [esi+4]` precedes the call),
   // because `Entity::Sync` unlinks the node it was reached through.
+  //
+  // Engine addition (agent training mode, AGENT_TrainingMode): the walk runs
+  // with no packet. Every entity still does its Sync bookkeeping, but no
+  // record is copied for the user session, which nobody watches in a training
+  // game. The records are copies of sim state that only the user session
+  // reads.
+  SSyncData* const entitySyncData = AGENT_TrainingMode() ? nullptr : outSyncData;
   std::int32_t syncedEntityCount = 0;
   if (focusArmyChanged) {
     ForEachAllArmyUnit(this, [&](Unit* const unit) {
-      unit->Sync(outSyncData);
+      unit->Sync(entitySyncData);
       ++syncedEntityCount;
     });
   } else {
@@ -5549,7 +5556,7 @@ void Sim::Sync(const SSyncFilter& filter, SSyncData*& outSyncData)
       Entity* const entity = *it;
       ++it;
       if (entity != nullptr) {
-        entity->Sync(outSyncData);
+        entity->Sync(entitySyncData);
         ++syncedEntityCount;
       }
     }
