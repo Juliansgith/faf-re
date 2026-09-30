@@ -1,6 +1,7 @@
 // Auto-generated from IDA VFTABLE/RTTI scan.
 // This header is a skeleton for reverse-engineering; adjust as needed.
 #pragma once
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 
@@ -173,8 +174,25 @@ namespace gpg::HaStar
          * Inverts `QuantizeEdgeCost`: scales `distance` by `exp(bucket / 6)`,
          * read from a 32-entry table rather than recomputed. The table lives at
          * 0x00E35DA0 and was verified entry-by-entry against `exp(q / 6)`.
+         *
+         * Defined here, inline: the path search calls it for every cluster edge
+         * it relaxes, and out of line the call cost more than the multiply.
          */
-        [[nodiscard]] static float DequantizeEdgeCost(int bucket, float distance);
+        [[nodiscard]] static float DequantizeEdgeCost(const int bucket, const float distance)
+        {
+            static constexpr float kBucketScale[32] = {
+                1.0f,          1.18136041f,   1.39561241f,   1.64872122f,
+                1.94773400f,   2.30097604f,   2.71828175f,   3.21127081f,
+                3.79366802f,   4.48168898f,   5.29449005f,   6.25470114f,
+                7.38905621f,   8.72913837f,   10.3122587f,   12.1824942f,
+                14.3919163f,   17.0020409f,   20.0855370f,   23.7282581f,
+                28.0316257f,   33.1154518f,   39.1212845f,   46.2163353f,
+                54.5981483f,   64.5000916f,   76.1978607f,   90.0171280f,
+                106.342674f,   125.629028f,   148.413162f,   175.329437f,
+            };
+
+            return kBucketScale[bucket] * distance;
+        }
 
         /**
          * Address: 0x007658D0 (FUN_007658D0)
@@ -184,8 +202,20 @@ namespace gpg::HaStar
          * `max + min * (sqrt(2) - 1)`. Pairs with the stored edge bucket, which
          * only records how much worse the real path is than this straight-line
          * lower bound.
+         *
+         * Defined here, inline, for the same reason as `DequantizeEdgeCost`.
          */
-        [[nodiscard]] static float NodeOctileDistance(const Data& data, std::uint32_t lhs, std::uint32_t rhs);
+        [[nodiscard]] static float NodeOctileDistance(const Data& data, const std::uint32_t lhs, const std::uint32_t rhs)
+        {
+            const float deltaX = std::fabs(
+                static_cast<float>(data.mNodes[rhs].x) - static_cast<float>(data.mNodes[lhs].x));
+            const float deltaZ = std::fabs(
+                static_cast<float>(data.mNodes[rhs].z) - static_cast<float>(data.mNodes[lhs].z));
+
+            return (deltaZ <= deltaX)
+                ? (deltaZ * 0.41421354f) + deltaX
+                : (deltaX * 0.41421354f) + deltaZ;
+        }
 
         /**
          * Address: 0x00954110 (FUN_00954110,
