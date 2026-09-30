@@ -19,6 +19,8 @@ namespace moho
    *                          10 is the fastest normal game speed and 0 is real time
    *   /agenttimeout <secs>   how long to keep retrying the initial connection (default 60)
    *   /agentvfx              keep particle effects while unpaced (skipped by default then)
+   *   /agenttraining         training mode: skip sim work only a watching human needs (see
+   *                          AGENT_TrainingMode); for minimized training games
    *   /agentlean             skip loading work that only feeds the renderer (strategic-icon textures,
    *                          searches for implicit mesh material textures); for training games that are
    *                          never drawn
@@ -113,4 +115,16 @@ namespace moho
    * already copes with an icon or texture that is missing.
    */
   [[nodiscard]] bool AGENT_SkipRenderOnlyAssets();
+
+  /**
+   * True with /agenttraining (and the bridge on): the sim skips work whose only consumer is the user
+   * session that draws the game - nobody watches a training game. What it skips must not change the
+   * simulation; each use says why it cannot, and the per-beat sim checksums (/checksumlog) of all-AI games
+   * with and without the switch are identical:
+   *   - Sim::Sync runs every dirty entity's Sync with no packet: the entity bookkeeping (interface flags,
+   *     visibility, command-queue snapshots, the dirty list) is done as always, but no create / update /
+   *     delete record is copied into the beat's packet, so the user session builds no UserEntity or
+   *     UserUnit and its per-beat work shrinks with it.
+   */
+  [[nodiscard]] bool AGENT_TrainingMode();
 } // namespace moho

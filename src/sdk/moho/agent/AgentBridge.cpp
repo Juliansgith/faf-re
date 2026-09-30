@@ -67,6 +67,7 @@ namespace moho
       int connectTimeoutSeconds = kDefaultConnectTimeoutSeconds;
       bool keepVisualEffects = false;
       bool leanLoading = false;
+      bool trainingMode = false;
       int watchdogSeconds = 60;
       int checksumPeriod = 0; // /agentchecksum: sim_ChecksumPeriod for the session (0: the sim's own, 50)
     };
@@ -119,6 +120,7 @@ namespace moho
       }
       config.keepVisualEffects = CFG_GetArgOption("/agentvfx", 0, nullptr);
       config.leanLoading = CFG_GetArgOption("/agentlean", 0, nullptr);
+      config.trainingMode = CFG_GetArgOption("/agenttraining", 0, nullptr);
       if (CFG_GetArgOption("/agentwatchdog", 1, &args) && !args.empty()) {
         config.watchdogSeconds = std::max(0, ParseIntArgument(args[0], config.watchdogSeconds));
       }
@@ -1600,5 +1602,11 @@ namespace moho
   {
     const AgentBridgeConfig& config = Config();
     return config.enabled && config.leanLoading;
+  }
+
+  bool AGENT_TrainingMode()
+  {
+    const AgentBridgeConfig& config = Config();
+    return config.enabled && config.trainingMode;
   }
 } // namespace moho
