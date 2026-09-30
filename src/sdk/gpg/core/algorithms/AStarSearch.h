@@ -343,13 +343,22 @@ namespace gpg
      *   +0x00 : mNodes  (msvc8::hash_map, 0x28)
      *   +0x28 : mOpen   (AStarOpenHeap, 0x24)
      *   sizeof == 0x4C
+     *
+     * `TTable` (engine addition) lets an owner substitute another node table
+     * for the binary's hash_map: the search only finds, inserts and clears
+     * nodes (it never iterates the table), so any exact map with stable node
+     * addresses gives the same search. The default is the binary's.
      */
-    template <class TCell, class TTraits, class TCellTraits = msvc8::hash_compare<TCell>>
+    template <
+        class TCell,
+        class TTraits,
+        class TCellTraits = msvc8::hash_compare<TCell>,
+        class TTable = msvc8::hash_map<TCell, AStarNode<TCell>, TCellTraits>>
     class AStarSearch
     {
     public:
         using node_type = AStarNode<TCell>;
-        using table_type = msvc8::hash_map<TCell, node_type, TCellTraits>;
+        using table_type = TTable;
         using heap_type = AStarOpenHeap<TCell>;
         using neighbour_type = AStarNeighbour<TCell>;
 
