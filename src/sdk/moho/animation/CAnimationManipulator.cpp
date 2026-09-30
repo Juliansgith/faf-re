@@ -165,13 +165,25 @@ namespace
     return ScaClipHeader(*resource)->mFrameCount;
   }
 
+  /**
+   * `std::fmod(x, y)` without the CRT call (_CIfmod) when |x| < |y|: the
+   * quotient then truncates to 0 and fmod, which is exact, returns x itself.
+   * Every other input (including NaN and infinities) still calls fmod.
+   * Engine change: animation frames wrap here every tick (see
+   * CAimManipulator.cpp for the same helper).
+   */
+  [[nodiscard]] inline float FmodSmallAware(const float x, const float y) noexcept
+  {
+    return (std::fabs(x) < std::fabs(y)) ? x : std::fmod(x, y);
+  }
+
   [[nodiscard]] float WrapToRange(const float value, const float range)
   {
     if (range == 0.0f) {
       return 0.0f;
     }
 
-    float wrapped = std::fmod(value, range);
+    float wrapped = FmodSmallAware(value, range);
     if (wrapped < 0.0f) {
       wrapped += range;
     }

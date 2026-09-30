@@ -269,9 +269,21 @@ namespace
     return fallbackSet;
   }
 
+  /**
+   * `std::fmod(x, y)` without the CRT call (_CIfmod) when |x| < |y|: the
+   * quotient then truncates to 0 and fmod, which is exact, returns x itself.
+   * Every other input (including NaN and infinities) still calls fmod.
+   * Engine change: aim tracking wraps four angles per weapon per tick, and the
+   * calls were about 3 % of the sim thread in large battles.
+   */
+  [[nodiscard]] inline float FmodSmallAware(const float x, const float y) noexcept
+  {
+    return (std::fabs(x) < std::fabs(y)) ? x : std::fmod(x, y);
+  }
+
   [[nodiscard]] float NormalizeCenteredAngle(const float minimum, const float maximum) noexcept
   {
-    float centered = std::fmod((minimum + maximum) * kHalfScale, kTwoPiRadians);
+    float centered = FmodSmallAware((minimum + maximum) * kHalfScale, kTwoPiRadians);
     if (centered < -kPiRadians) {
       centered += kTwoPiRadians;
     } else if (centered > kPiRadians) {
@@ -282,7 +294,7 @@ namespace
 
   [[nodiscard]] float NormalizeAngleRadians(float angleRadians) noexcept
   {
-    angleRadians = std::fmod(angleRadians, kTwoPiRadians);
+    angleRadians = FmodSmallAware(angleRadians, kTwoPiRadians);
     if (angleRadians < -kPiRadians) {
       angleRadians += kTwoPiRadians;
     } else if (angleRadians > kPiRadians) {
