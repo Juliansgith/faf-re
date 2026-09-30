@@ -24,13 +24,21 @@ namespace moho
    *                          never drawn
    *   /agentwatchdog <secs>  if the sim thread makes no progress for this long, log the Lua
    *                          traceback, send it to the agent and exit (default 60, 0 disables)
+   *   /agentchecksum <n>     the sim checksums every n beats instead of every 50 (1: every beat), so
+   *                          the "sums" of each message cover each beat (determinism checks)
+   *   /agentpoison <byte>    diagnostics: fill every new heap block with this byte, to expose reads of
+   *                          uninitialised memory (two runs with different bytes differ where one matters)
    *
    * Protocol: newline-delimited JSON over TCP. At the end of every sim tick that is due, the game
    * sends one message and blocks the sim thread until the agent answers with one message:
    *
    *   game  -> agent  {"type":"hello","protocol":1,"tick":T,"info":<AgentBridge_Hello()>}   (first)
    *   game  -> agent  {"type":"obs","tick":T,"gameOver":b,"obs":<AgentBridge_Observe()>,
-   *                    "result":<AgentBridge_Act() result for the previous reply>}
+   *                    "result":<AgentBridge_Act() result for the previous reply>,
+   *                    "beat":B,"sums":[[beat,"md5"],...],"stream":[[beat,op,arg],...]}
+   *                   `sums` are the sim's own per-beat checksums (the desync check's) of every beat
+   *                   finished since the previous message; `stream` is only present when a client put
+   *                   something other than beat bookkeeping into the command stream.
    *   agent -> game   any JSON object; it is handed to AgentBridge_Act(msg) as a Lua table. The engine
    *                   itself reads only `wait` (ticks until the next observation, default 1) and
    *                   `cmd` ("quit" ends the process).
@@ -54,6 +62,15 @@ namespace moho
 
   /** Called by `Sim::AdvanceBeat` at the end of every beat (sim thread). */
   void AGENT_OnSimBeat(Sim* sim);
+
+  /**
+   * Called by `CDecoder::DecodeMessage` for every command-stream message the sim consumes (`op` is its
+   * ECmdStreamOp, `arg` the first payload byte). The next step message lists the ones that are not the
+   * stream's own bookkeeping -- what a client (the local UI included) asked the sim to do, and in which
+   * beat: anything there that the agent did not send is outside its control ("stream"). Inert without
+   * /agentbridge.
+   */
+  void AGENT_NoteStreamOp(unsigned op, unsigned arg);
 
   /** Sim rate the issue thread paces beats to: `/agentspeed` while the bridge is on, else `requested`. */
   [[nodiscard]] int AGENT_ResolvePacingSimRate(int requestedSimRate);

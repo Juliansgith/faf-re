@@ -7,6 +7,7 @@
 #include <stdexcept>
 
 #include "gpg/core/algorithms/MD5.h"
+#include "moho/agent/AgentBridge.h"
 #include "gpg/core/containers/String.h"
 #include "lua/LuaObject.h"
 #include "moho/command/SSTICommandIssueData.h"
@@ -155,6 +156,14 @@ namespace moho
     gpg::BinaryReader reader(&stream);
 
     const auto opcode = static_cast<ECmdStreamOp>(static_cast<std::uint8_t>(message.mBuff[0]));
+
+    // Engine addition: the agent bridge reports what the command stream carried (inert without it).
+    {
+      const std::size_t size = static_cast<std::size_t>(message.mBuff.end_ - message.mBuff.start_);
+      AGENT_NoteStreamOp(
+        static_cast<unsigned>(opcode), size > 3u ? static_cast<unsigned>(static_cast<std::uint8_t>(message.mBuff.start_[3])) : 0u
+      );
+    }
 
     switch (opcode) {
     case ECmdStreamOp::CMDST_Advance:
