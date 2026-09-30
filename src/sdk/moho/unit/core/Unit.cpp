@@ -14784,20 +14784,26 @@ void Unit::UpdateBlipsInRange()
   const RUnitBlueprint* const blueprint = GetBlueprint();
   CAiAttackerImpl* const attacker = AiAttacker;
 
-  // Guard-scan radius: zero unless the head command passes FAF's patched gate.
+  // Guard-scan radius: zero unless the head command passes FAF's patched gate
+  // (FA-Binary-Patches GuardFix, "zeroing GuardScanRadius if the unit's order is
+  // not Patrol/AttackMove"; the hook at 0x006ACC95 jumps to 0x0128F426):
   //
-  // That gate (0x0128C956, inside the `// patched` block the decompiler marks in
-  // FUN_006ACC60) is `mov edi,[edi+94h] / and edi,30h`. `CUnitCommand::mVarDat`
-  // is constructed at `+0x80` (0x006E82E8 `lea ecx,[ebp+80h]`) and the ent-id
-  // list's inline window is `+0x10..+0x17`, so `+0x94` is the list's SECOND
-  // inline slot -- not a flag word. Retail's own variable-data constructor never
-  // writes it, so this reads whatever the last published ent-id pair left there.
-  // Kept at the same lane rather than reinterpreted as a command-type test:
-  // `mCmdType` is at `+0x98`, and masking it with 0x30 would not select
-  // Guard (0x0F) anyway.
+  //   mov edx,[ebx+4B4h]   ; CommandQueue
+  //   mov edi,[edx+10h]    ; mCommandVec begin (== end -> zero)
+  //   mov edi,[edi]        ; the head WeakPtr's owner-link slot = command + 4
+  //   mov edi,[edi+94h]    ; command + 0x98 = mVarDat.mCmdType
+  //   and edi,30h          ; Patrol 0x10, AggressiveMove 0x23, ... (bits 4-5)
+  //
+  // The `+0x94` is relative to the weak pointer's owner-link slot, which sits one
+  // pointer into the command (WeakPtrOwnerLinkOffset<CUnitCommand> == 4), not to
+  // the command itself. Read from the command object, +0x94 was the second inline
+  // slot of `mVarDat.mEntIds` -- never written for a single-unit command -- so the
+  // radius depended on whatever the heap block held before: a read of
+  // uninitialised memory that made the sim diverge between two runs of the same
+  // game (seen as one army's commander steering differently).
   float scanRadius = 0.0f;
   CUnitCommand* const headCommand = CommandQueue->GetCurrentCommand();
-  if (headCommand != nullptr && (headCommand->mVarDat.mEntIds.InlineStorage()[1] & 0x30) != 0) {
+  if (headCommand != nullptr && (static_cast<std::uint32_t>(headCommand->mVarDat.mCmdType) & 0x30u) != 0u) {
     scanRadius = blueprint->AI.GuardScanRadius;
   }
 
