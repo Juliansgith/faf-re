@@ -24,13 +24,32 @@ namespace
     return kNullOwner;
   }
 
+  /**
+   * Shared body of `Union` (0x00401CB0), `ExclusiveOr` (0x00401E30) and
+   * `Subtract` (0x00402110): sizes `out` to `[outStartWord, outStartWord +
+   * outWordCount)`, copies every lhs word into it, then folds the rhs words of
+   * `[applyStartWord, applyEndWord)` in with `op`.
+   *
+   * The fold span is the caller's business and differs per operation. Union
+   * and XOR size `out` to the hull of both ranges and fold rhs over its WHOLE
+   * range -- their second loop runs `for (w = rhs.first; w < rhsEnd; ++w)`
+   * (0x00401D89..0x00401DBD, 0x00401F09..0x00401F3D). Subtract keeps lhs's
+   * range and folds only the overlap (0x0040217C..0x004021B3). This helper
+   * used to fold the overlap for all three, so `A + B` dropped every member of
+   * B lying outside A's word range: `categories.ENGINEER + categories.FACTORY`
+   * lost the factories whose blueprint ordinals sort before the first
+   * engineer (uab0101 and friends, 124 units instead of 136), while
+   * `FACTORY + ENGINEER` was complete.
+   */
   template <typename WordOp>
-  BVIntSet* CopyAndApplyOverlap(
+  BVIntSet* CopyLhsThenApplyRhs(
     const BVIntSet& lhs,
     const BVIntSet& rhs,
     BVIntSet* const out,
     const unsigned int outStartWord,
     const unsigned int outWordCount,
+    const unsigned int applyStartWord,
+    const unsigned int applyEndWord,
     WordOp&& op
   )
   {
@@ -47,9 +66,7 @@ namespace
       );
     }
 
-    const unsigned int overlapStart = std::max(lhsRange.mStartWord, rhsRange.mStartWord);
-    const unsigned int overlapEnd = std::min(lhsRange.mEndWord, rhsRange.mEndWord);
-    for (unsigned int wordIndex = overlapStart; wordIndex < overlapEnd; ++wordIndex) {
+    for (unsigned int wordIndex = applyStartWord; wordIndex < applyEndWord; ++wordIndex) {
       op(out->mWords[wordIndex - outStartWord], rhs.mWords[wordIndex - rhsRange.mStartWord]);
     }
 
@@ -646,7 +663,9 @@ bool moho::operator!=(const BVIntSet& lhs, const BVIntSet& rhs) noexcept
  * Address: 0x00401CB0 (FUN_00401CB0)
  *
  * What it does:
- * Builds the union of `*this` and `rhs` into `out`.
+ * Builds the union of `*this` and `rhs` into `out`: `out` spans the hull of
+ * both word ranges, receives every lhs word, then every rhs word is ORed in
+ * over rhs's whole range. No trim (the binary calls no Finalize here).
  */
 BVIntSet* BVIntSet::Union(BVIntSet* const out, const BVIntSet* const rhs) const
 {
@@ -655,12 +674,14 @@ BVIntSet* BVIntSet::Union(BVIntSet* const out, const BVIntSet* const rhs) const
   const unsigned int outStartWord = std::min(lhsRange.mStartWord, rhsRange.mStartWord);
   const unsigned int outWordCount = std::max(lhsRange.mEndWord, rhsRange.mEndWord) - outStartWord;
 
-  return CopyAndApplyOverlap(
+  return CopyLhsThenApplyRhs(
     *this,
     *rhs,
     out,
     outStartWord,
     outWordCount,
+    rhsRange.mStartWord,
+    rhsRange.mEndWord,
     [](unsigned int& dstWord, const unsigned int rhsWord) {
       dstWord |= rhsWord;
     }
@@ -671,7 +692,9 @@ BVIntSet* BVIntSet::Union(BVIntSet* const out, const BVIntSet* const rhs) const
  * Address: 0x00401E30 (FUN_00401E30)
  *
  * What it does:
- * Builds the symmetric difference of `*this` and `rhs` into `out`.
+ * Builds the symmetric difference of `*this` and `rhs` into `out`: the same
+ * hull-sized copy as `Union`, rhs XORed in over its whole range, then
+ * `Finalize` (0x00401F44).
  */
 BVIntSet* BVIntSet::ExclusiveOr(BVIntSet* const out, const BVIntSet* const rhs) const
 {
@@ -680,12 +703,14 @@ BVIntSet* BVIntSet::ExclusiveOr(BVIntSet* const out, const BVIntSet* const rhs) 
   const unsigned int outStartWord = std::min(lhsRange.mStartWord, rhsRange.mStartWord);
   const unsigned int outWordCount = std::max(lhsRange.mEndWord, rhsRange.mEndWord) - outStartWord;
 
-  CopyAndApplyOverlap(
+  CopyLhsThenApplyRhs(
     *this,
     *rhs,
     out,
     outStartWord,
     outWordCount,
+    rhsRange.mStartWord,
+    rhsRange.mEndWord,
     [](unsigned int& dstWord, const unsigned int rhsWord) {
       dstWord ^= rhsWord;
     }
@@ -716,17 +741,22 @@ BVIntSet* BVIntSet::Intersect(BVIntSet* const out, const BVIntSet* const rhs) co
  * Address: 0x00402110 (FUN_00402110)
  *
  * What it does:
- * Builds `*this & ~rhs` into `out` and compacts the result.
+ * Builds `*this & ~rhs` into `out` and compacts the result. `out` keeps lhs's
+ * word range and only the overlap with rhs is masked; rhs words outside it
+ * cannot remove anything.
  */
 BVIntSet* BVIntSet::Subtract(BVIntSet* const out, const BVIntSet* const rhs) const
 {
   const BVIntSetWordRange lhsRange = WordRange();
-  CopyAndApplyOverlap(
+  const BVIntSetWordRange rhsRange = rhs->WordRange();
+  CopyLhsThenApplyRhs(
     *this,
     *rhs,
     out,
     lhsRange.mStartWord,
     lhsRange.mEndWord - lhsRange.mStartWord,
+    std::max(lhsRange.mStartWord, rhsRange.mStartWord),
+    std::min(lhsRange.mEndWord, rhsRange.mEndWord),
     [](unsigned int& dstWord, const unsigned int rhsWord) {
       dstWord &= ~rhsWord;
     }
