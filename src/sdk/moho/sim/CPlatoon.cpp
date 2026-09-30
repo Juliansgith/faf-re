@@ -3952,7 +3952,10 @@ namespace moho
     int commandIndex = 1;
     for (const WeakPtr<CUnitCommand>& commandLink : issuedCommands) {
       CUnitCommand* const command = commandLink.GetObjectPtr();
-      commandTable.Insert(commandIndex, command->mArgs);
+      // the command's own Lua object ([command+20h], CScriptObject::mLuaObj), which the binary appends:
+      // not mArgs, the issue payload (unbound for platoon orders: "m_state == obj.m_state" killed
+      // every AI platoon thread that moved, attacked, guarded or ferried)
+      commandTable.Insert(commandIndex, command->mLuaObj);
       ++commandIndex;
     }
 
@@ -4165,7 +4168,10 @@ namespace moho
     int commandIndex = 1;
     for (const WeakPtr<CUnitCommand>& commandLink : issuedCommands) {
       CUnitCommand* const command = commandLink.GetObjectPtr();
-      commandTable.Insert(commandIndex, command->mArgs);
+      // the command's own Lua object ([command+20h], CScriptObject::mLuaObj), which the binary appends:
+      // not mArgs, the issue payload (unbound for platoon orders: "m_state == obj.m_state" killed
+      // every AI platoon thread that moved, attacked, guarded or ferried)
+      commandTable.Insert(commandIndex, command->mLuaObj);
       ++commandIndex;
     }
 
@@ -4389,7 +4395,10 @@ namespace moho
     int commandIndex = 1;
     for (const WeakPtr<CUnitCommand>& commandLink : issuedCommands) {
       CUnitCommand* const command = commandLink.GetObjectPtr();
-      commandTable.Insert(commandIndex, command->mArgs);
+      // the command's own Lua object ([command+20h], CScriptObject::mLuaObj), which the binary appends:
+      // not mArgs, the issue payload (unbound for platoon orders: "m_state == obj.m_state" killed
+      // every AI platoon thread that moved, attacked, guarded or ferried)
+      commandTable.Insert(commandIndex, command->mLuaObj);
       ++commandIndex;
     }
 
@@ -4561,7 +4570,10 @@ namespace moho
     int commandIndex = 1;
     for (const WeakPtr<CUnitCommand>& commandLink : issuedCommands) {
       CUnitCommand* const command = commandLink.GetObjectPtr();
-      commandTable.Insert(commandIndex, command->mArgs);
+      // the command's own Lua object ([command+20h], CScriptObject::mLuaObj), which the binary appends:
+      // not mArgs, the issue payload (unbound for platoon orders: "m_state == obj.m_state" killed
+      // every AI platoon thread that moved, attacked, guarded or ferried)
+      commandTable.Insert(commandIndex, command->mLuaObj);
       ++commandIndex;
     }
 
@@ -4687,7 +4699,10 @@ namespace moho
     int commandIndex = 1;
     for (const WeakPtr<CUnitCommand>& commandLink : issuedCommands) {
       CUnitCommand* const command = commandLink.GetObjectPtr();
-      commandTable.Insert(commandIndex, command->mArgs);
+      // the command's own Lua object ([command+20h], CScriptObject::mLuaObj), which the binary appends:
+      // not mArgs, the issue payload (unbound for platoon orders: "m_state == obj.m_state" killed
+      // every AI platoon thread that moved, attacked, guarded or ferried)
+      commandTable.Insert(commandIndex, command->mLuaObj);
       ++commandIndex;
     }
 
@@ -4792,7 +4807,10 @@ namespace moho
     int commandIndex = 1;
     for (const WeakPtr<CUnitCommand>& commandLink : issuedCommands) {
       CUnitCommand* const command = commandLink.GetObjectPtr();
-      commandTable.Insert(commandIndex, command->mArgs);
+      // the command's own Lua object ([command+20h], CScriptObject::mLuaObj), which the binary appends:
+      // not mArgs, the issue payload (unbound for platoon orders: "m_state == obj.m_state" killed
+      // every AI platoon thread that moved, attacked, guarded or ferried)
+      commandTable.Insert(commandIndex, command->mLuaObj);
       ++commandIndex;
     }
 
@@ -4917,7 +4935,10 @@ namespace moho
     int commandIndex = 1;
     for (const WeakPtr<CUnitCommand>& commandLink : issuedCommands) {
       CUnitCommand* const command = commandLink.GetObjectPtr();
-      commandTable.Insert(commandIndex, command->mArgs);
+      // the command's own Lua object ([command+20h], CScriptObject::mLuaObj), which the binary appends:
+      // not mArgs, the issue payload (unbound for platoon orders: "m_state == obj.m_state" killed
+      // every AI platoon thread that moved, attacked, guarded or ferried)
+      commandTable.Insert(commandIndex, command->mLuaObj);
       ++commandIndex;
     }
 
@@ -5036,7 +5057,10 @@ namespace moho
     int commandIndex = 1;
     for (const WeakPtr<CUnitCommand>& commandLink : issuedCommands) {
       CUnitCommand* const command = commandLink.GetObjectPtr();
-      commandTable.Insert(commandIndex, command->mArgs);
+      // the command's own Lua object ([command+20h], CScriptObject::mLuaObj), which the binary appends:
+      // not mArgs, the issue payload (unbound for platoon orders: "m_state == obj.m_state" killed
+      // every AI platoon thread that moved, attacked, guarded or ferried)
+      commandTable.Insert(commandIndex, command->mLuaObj);
       ++commandIndex;
     }
 
@@ -5326,7 +5350,10 @@ namespace moho
     int commandIndex = 1;
     for (const WeakPtr<CUnitCommand>& commandLink : issuedCommands) {
       CUnitCommand* const command = commandLink.GetObjectPtr();
-      commandTable.Insert(commandIndex, command->mArgs);
+      // the command's own Lua object ([command+20h], CScriptObject::mLuaObj), which the binary appends:
+      // not mArgs, the issue payload (unbound for platoon orders: "m_state == obj.m_state" killed
+      // every AI platoon thread that moved, attacked, guarded or ferried)
+      commandTable.Insert(commandIndex, command->mLuaObj);
       ++commandIndex;
     }
 
@@ -5651,7 +5678,10 @@ namespace moho
     int commandIndex = 1;
     for (const WeakPtr<CUnitCommand>& commandLink : issuedCommands) {
       CUnitCommand* const command = commandLink.GetObjectPtr();
-      commandTable.Insert(commandIndex, command->mArgs);
+      // the command's own Lua object ([command+20h], CScriptObject::mLuaObj), which the binary appends:
+      // not mArgs, the issue payload (unbound for platoon orders: "m_state == obj.m_state" killed
+      // every AI platoon thread that moved, attacked, guarded or ferried)
+      commandTable.Insert(commandIndex, command->mLuaObj);
       ++commandIndex;
     }
 
@@ -5790,7 +5820,10 @@ namespace moho
     int commandIndex = 1;
     for (const WeakPtr<CUnitCommand>& commandLink : issuedCommands) {
       CUnitCommand* const command = commandLink.GetObjectPtr();
-      commandTable.Insert(commandIndex, command->mArgs);
+      // the command's own Lua object ([command+20h], CScriptObject::mLuaObj), which the binary appends:
+      // not mArgs, the issue payload (unbound for platoon orders: "m_state == obj.m_state" killed
+      // every AI platoon thread that moved, attacked, guarded or ferried)
+      commandTable.Insert(commandIndex, command->mLuaObj);
       ++commandIndex;
     }
 
