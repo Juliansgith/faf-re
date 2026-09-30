@@ -1917,9 +1917,18 @@ namespace
   // constructor is correct.
   [[nodiscard]] Wm3::Vector3f ForwardXZ(const Unit& unit) noexcept
   {
-    const moho::VAxes3 axes(unit.GetTransform().orient_);
-    Wm3::Vector3f forward = axes.vZ;
-    forward.y = 0.0f;
+    // `VAxes3(orient).vZ` with its y lane dropped. Only the two lanes that are
+    // kept are computed, with VAxes3::VAxes3's own expressions (0x004EC590):
+    // vZ.x = 2w*y + 2x*z, vZ.z = 1 - (2y*y + 2x*x).
+    const auto& orient = unit.GetTransform().orient_;
+    const float twoW = orient.w * 2.0f;
+    const float twoX = orient.x * 2.0f;
+    const float twoY = orient.y * 2.0f;
+    const float xx = twoX * orient.x;
+    const float yy = twoY * orient.y;
+    const float wy = twoW * orient.y;
+    const float xz = twoX * orient.z;
+    Wm3::Vector3f forward{wy + xz, 0.0f, 1.0f - (yy + xx)};
     return Wm3::Vector3f::NormalizeOrZero(forward);
   }
 
@@ -2229,7 +2238,11 @@ namespace
     const Wm3::Vector3f a2Forward = ForwardXZ(*a2);
     const Wm3::Vector3f a1Forward = ForwardXZ(*a1);
     const Wm3::Vector3f a2ToA1 = Wm3::Vector3f::NormalizeOrZero(a1->GetPosition() - a2->GetPosition());
-    const Wm3::Vector3f a1ToA2 = Wm3::Vector3f::NormalizeOrZero(a2->GetPosition() - a1->GetPosition());
+    // The binary normalises `a2 - a1` as well. Rounding is symmetric, so that
+    // is `-a2ToA1` exactly, up to the sign of zero lanes, which the two
+    // comparisons below cannot see (a zero lane only adds a signed zero to the
+    // dot product, and an all-zero product compares equal to 0 either way).
+    const Wm3::Vector3f a1ToA2 = a2ToA1 * -1.0f;
 
     const float a2Alignment = Wm3::Vector3f::Dot(a2ToA1, a2Forward);
     const float a1Alignment = Wm3::Vector3f::Dot(a1ToA2, a1Forward);
