@@ -409,19 +409,6 @@ namespace
     return static_cast<int>(lua_tonumber(rawState, countObject.m_stackIndex));
   }
 
-  [[nodiscard]] moho::BVSet<moho::EntId, moho::EntIdUniverse> BuildSelectedEntitySetFromUnits(const moho::UnitSet& units)
-  {
-    moho::BVSet<moho::EntId, moho::EntIdUniverse> selectedUnits{};
-    for (moho::Unit* const unit : units) {
-      if (unit == nullptr) {
-        continue;
-      }
-
-      (void)selectedUnits.mBits.Add(static_cast<unsigned int>(unit->id_));
-    }
-    return selectedUnits;
-  }
-
   // ---- UISelectionByCategory support (FUN_008662B0) ----
 
   [[nodiscard]] const Wm3::Box3f* SelectionEntityMeshBox(moho::UserEntity* const entity)
@@ -901,6 +888,17 @@ namespace
     return !outUnits.Empty();
   }
 
+  /**
+   * The shared body of `IssueStop` / `IssuePause` / `IssueKillSelf` / `IssueDestroySelf` (0x006F1AB0,
+   * 0x006F1C50, 0x006F6F50, 0x006F70D0): each builds the issue data for its command type and hands the unit
+   * set straight to `UNIT_IssueCommand` (0x006F12C0, `call 0x6F12C0` with clearQueue = 0).
+   *
+   * These are sim-script orders, not a client's: they must not go through `Sim::IssueCommand`, the
+   * command-stream entry point, which validates the network command id against the current command
+   * source. A script order carries no id (0xFFFFFFFF), so every one of them was dropped with "IssueCommand:
+   * ignoring issue of cmd id 0xffffffff ... the id's source (255) is wrong" -- FAF's AI and unit scripts
+   * could not stop, pause or self-destruct a unit.
+   */
   void IssueSimpleUnitCommand(
     moho::Sim* const sim,
     const moho::UnitSet& units,
@@ -911,13 +909,13 @@ namespace
       return;
     }
 
-    const moho::BVSet<moho::EntId, moho::EntIdUniverse> selectedUnits = BuildSelectedEntitySetFromUnits(units);
-    if (selectedUnits.mBits.Count() == 0) {
+    moho::EntitySetTemplate<moho::Unit> selectedUnits(units);
+    if (selectedUnits.Empty()) {
       return;
     }
 
     moho::SSTICommandIssueData commandIssueData(commandType);
-    sim->IssueCommand(selectedUnits, commandIssueData, false);
+    (void)moho::IssueCommandToSelectedUnits(sim, selectedUnits, commandIssueData, false);
   }
 
   [[nodiscard]] int ResolveFormationScriptIndex(
