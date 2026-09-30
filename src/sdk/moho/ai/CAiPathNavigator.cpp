@@ -1433,9 +1433,14 @@ bool CAiPathNavigator::TryAdvanceTargetPoint()
     // `COGrid::UnitIsBlocked`. The recovered form ran both unconditionally and
     // handed the short-step test `mCurrentPos` as its from-cell, which made it
     // a second swept mobile-unit test rather than the endpoint test it is.
-    const bool stepClear = (ManhattanDistance(mCurrentPos, candidate) > 1)
-      ? CanReachCellFromCurrent(*this, candidate)
-      : CanPathCellTransition(*this, candidate, candidate);
+    //
+    // The binary runs the step test even when `canOccupy` already failed; its
+    // result is then never used, and both step tests only read sim state (the
+    // grid gathers they make clear their marks again), so it is skipped here.
+    const bool stepClear = canOccupy &&
+      ((ManhattanDistance(mCurrentPos, candidate) > 1)
+         ? CanReachCellFromCurrent(*this, candidate)
+         : CanPathCellTransition(*this, candidate, candidate));
 
     if (canOccupy && stepClear) {
       mHasForwardProbe = 1;
