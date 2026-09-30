@@ -1,4 +1,5 @@
 #include "moho/agent/AgentBridge.h"
+#include "moho/agent/AgentInternal.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -365,6 +366,12 @@ namespace moho
           return;
         case LUA_TTABLE:
           break;
+        case LUA_TLIGHTUSERDATA:
+          // pre-built JSON from AgentBridge_ObserveUnits (AgentObserve.cpp)
+          if (!agent::AppendRawJsonToken(L, index, out)) {
+            out += "null";
+          }
+          return;
         default:
           out += "null";
           return;
@@ -770,6 +777,7 @@ namespace moho
     {
       RegisterGlobalFunction(L, "AgentBridge_LoadChunk", &AgentLoadChunk);
       RegisterGlobalFunction(L, "AgentBridge_Lap", &AgentLap);
+      agent::RegisterObserveFunctions(L);
 
       std::ifstream file(path, std::ios::binary);
       if (!file) {
@@ -1190,6 +1198,24 @@ namespace moho
       MarkBusy(false);
     }
   } // namespace
+
+  namespace agent
+  {
+    void AppendJsonString(std::string& out, const char* const text, const std::size_t length)
+    {
+      moho::AppendJsonString(out, text, length);
+    }
+
+    void AppendJsonNumber(std::string& out, const double value)
+    {
+      moho::AppendJsonNumber(out, value);
+    }
+
+    void EncodeLuaValue(lua_State* const L, const int index, std::string& out, const int depth)
+    {
+      moho::EncodeLuaValue(L, index, out, depth);
+    }
+  } // namespace agent
 
   namespace
   {

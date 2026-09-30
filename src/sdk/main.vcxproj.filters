@@ -258,6 +258,9 @@
     <ClCompile Include="moho\agent\AgentBridge.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="moho\agent\AgentObserve.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="moho\sim\SimWorkerPool.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
