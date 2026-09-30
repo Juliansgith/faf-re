@@ -11,6 +11,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdarg>
+#include <share.h>
 #include <cstdio>
 #include <cstddef>
 #include <cstdarg>
@@ -5764,6 +5765,25 @@ void Sim::Sync(const SSyncFilter& filter, SSyncData*& outSyncData)
     beatHash = gpg::MD5Digest{};
   }
   Logf("beat %d final checksum: %s\n", static_cast<int>(beat), beatHash.ToString().c_str());
+
+  // Engine addition (not in the binary): `/checksumlog <file>` appends every beat's final checksum to
+  // <file> as one "<beat> <digest>" line -- a determinism trace cheap enough for whole games (the
+  // /synclog beat files trace every checksum input and slow the sim down several times). Flushed every
+  // beat: agent sessions end with TerminateProcess.
+  {
+    static FILE* const sChecksumLog = []() -> FILE* {
+      msvc8::vector<msvc8::string> args;
+      if (!CFG_GetArgOption("/checksumlog", 1u, &args) || args.empty()) {
+        return nullptr;
+      }
+      // _fsopen with _SH_DENYNO (fopen_s denies sharing): the file can be read while the game runs.
+      return _fsopen(args.front().c_str(), "w", _SH_DENYNO);
+    }();
+    if (sChecksumLog != nullptr) {
+      std::fprintf(sChecksumLog, "%u %s\n", beat, beatHash.ToString().c_str());
+      std::fflush(sChecksumLog);
+    }
+  }
 
   // 0x00748311..0x00748336: the beat is published, so retire it. The
   // advanced-this-tick latch is consumed with it, and the game-over flag the
