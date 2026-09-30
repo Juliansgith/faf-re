@@ -347,6 +347,35 @@ namespace moho
     );
 
     /**
+     * Engine addition: the query ForAllEntitiesIterator runs for one sphere -
+     * the gather bounds, and the per-entity acceptance test (an overlap with
+     * the inner 0.707r box for radii above 3, otherwise or failing that the
+     * entity's own CollideSphere). A caller that filters the gathered
+     * entities anyway can gather `Bounds()` itself and test `Accepts` after
+     * its cheaper filters; every step is a pure read, so the accepted set and
+     * its order are the same.
+     */
+    class SphereQuery
+    {
+    public:
+      explicit SphereQuery(const Wm3::Sphere3f& sphere) noexcept;
+
+      [[nodiscard]] const Wm3::AxisAlignedBox3f& Bounds() const noexcept { return mBounds; }
+
+      /**
+       * Whether ForAllEntitiesIterator would report `candidate`. A sphere
+       * test writes its contact into `outResult` when one is given.
+       */
+      [[nodiscard]] bool Accepts(const Entity& candidate, CollisionResult* outResult = nullptr) const;
+
+    private:
+      Wm3::Sphere3f mSphere;
+      Wm3::AxisAlignedBox3f mBounds;
+      Wm3::AxisAlignedBox3f mInnerBounds{};
+      bool mSmall;
+    };
+
+    /**
      * Address: 0x00721340 (FUN_00721340, Moho::COGrid::UnitIsBlocked)
      *
      * IDA signature:
