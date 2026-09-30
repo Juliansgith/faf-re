@@ -12,6 +12,8 @@
 #include <new>
 #include <typeinfo>
 #include <utility>
+#include <vector>
+#include <memory>
 
 #include "gpg/core/algorithms/AStarSearch.h"
 #include "legacy/containers/Vector.h"
@@ -68,6 +70,191 @@ namespace
   constexpr std::int8_t kStepOffsetZ[8] = { -1, 0, 1, 0, -1, 1, 1, -1 };
   constexpr std::uint8_t kStepGate[8] = { 0u, 0u, 0u, 0u, 3u, 6u, 12u, 9u };
   constexpr float kStepCost[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.414f, 1.414f, 1.414f, 1.414f };
+
+  /**
+   * Engine addition, not recovered from the binary: the node table of the
+   * path queries' A* search, in place of the binary's MSVC8
+   * `stdext::hash_map` at ImplBase +0x00.
+   *
+   * The search looks up every neighbour of every node it expands. In the
+   * binary's table that is a Park-Miller hash (a division), a walk along a
+   * sorted bucket window of individually allocated list nodes, and a heap
+   * allocation per new node, all of it freed node by node when the next
+   * query clears the table. Path searches are the largest single cost of the
+   * sim thread in big AI games (about a fifth of it), and most of that was
+   * the table.
+   *
+   * Here nodes live in chunks that are kept for the next query (a node never
+   * moves while the table holds it, as the heap and the parent links
+   * require), and an open-addressing index maps the packed cell to its node.
+   * Clearing is O(1): a new generation stamp. The search only finds, inserts
+   * and clears, it never iterates the table, so it makes exactly the same
+   * decisions with either table.
+   *
+   * The object keeps the binary table's 0x28-byte footprint, so the recovered
+   * ImplBase layout (and its offset asserts) stays as it was; the storage is
+   * behind the first word.
+   */
+  class PathQueueNodeTable
+  {
+  public:
+    using key_type = moho::SOCellPos;
+    using mapped_type = gpg::AStarNode<moho::SOCellPos>;
+    using value_type = std::pair<moho::SOCellPos, gpg::AStarNode<moho::SOCellPos>>;
+    using iterator = value_type*;
+
+    PathQueueNodeTable()
+      : mStorage(new Storage())
+    {
+    }
+
+    ~PathQueueNodeTable()
+    {
+      delete mStorage;
+    }
+
+    PathQueueNodeTable(const PathQueueNodeTable&) = delete;
+    PathQueueNodeTable& operator=(const PathQueueNodeTable&) = delete;
+
+    [[nodiscard]] iterator end() const noexcept
+    {
+      return nullptr;
+    }
+
+    [[nodiscard]] iterator find(const key_type& cell) const noexcept
+    {
+      return mStorage->Find(moho::PackCellKey(cell));
+    }
+
+    std::pair<iterator, bool> insert(const value_type& value)
+    {
+      const std::uint32_t key = moho::PackCellKey(value.first);
+      if (value_type* const existing = mStorage->Find(key)) {
+        return {existing, false};
+      }
+      value_type* const node = mStorage->Allocate();
+      *node = value;
+      mStorage->Index(key, node);
+      return {node, true};
+    }
+
+    void clear() noexcept
+    {
+      mStorage->Clear();
+    }
+
+  private:
+    struct Storage
+    {
+      static constexpr std::uint32_t kChunkNodes = 1024u;
+
+      struct Slot
+      {
+        std::uint32_t key = 0u;
+        std::uint32_t stamp = 0u;
+        value_type* node = nullptr;
+      };
+
+      std::vector<std::unique_ptr<value_type[]>> chunks;
+      std::uint32_t used = 0u;
+      std::vector<Slot> slots;
+      std::uint32_t shift = 32u;
+      std::uint32_t stamp = 1u;
+      std::uint32_t live = 0u;
+
+      [[nodiscard]] std::size_t Home(const std::uint32_t key) const noexcept
+      {
+        return static_cast<std::size_t>((key * 2654435761u) >> shift);
+      }
+
+      [[nodiscard]] value_type* Find(const std::uint32_t key) const noexcept
+      {
+        if (slots.empty()) {
+          return nullptr;
+        }
+        const std::size_t mask = slots.size() - 1u;
+        for (std::size_t index = Home(key);; index = (index + 1u) & mask) {
+          const Slot& slot = slots[index];
+          if (slot.stamp != stamp) {
+            return nullptr;
+          }
+          if (slot.key == key) {
+            return slot.node;
+          }
+        }
+      }
+
+      [[nodiscard]] value_type* Allocate()
+      {
+        if (used == chunks.size() * kChunkNodes) {
+          chunks.push_back(std::make_unique<value_type[]>(kChunkNodes));
+        }
+        value_type* const node = &chunks[used / kChunkNodes][used % kChunkNodes];
+        ++used;
+        return node;
+      }
+
+      void Index(const std::uint32_t key, value_type* const node)
+      {
+        if ((live + 1u) * 2u > slots.size()) {
+          Grow();
+        }
+        Place(key, node);
+      }
+
+      void Place(const std::uint32_t key, value_type* const node) noexcept
+      {
+        const std::size_t mask = slots.size() - 1u;
+        for (std::size_t index = Home(key);; index = (index + 1u) & mask) {
+          Slot& slot = slots[index];
+          if (slot.stamp != stamp) {
+            slot.key = key;
+            slot.stamp = stamp;
+            slot.node = node;
+            ++live;
+            return;
+          }
+        }
+      }
+
+      void Grow()
+      {
+        const std::size_t capacity = slots.empty() ? 1024u : slots.size() * 2u;
+        std::vector<Slot> previous(capacity);
+        previous.swap(slots);
+        std::uint32_t bits = 0u;
+        while ((std::size_t{1} << bits) < capacity) {
+          ++bits;
+        }
+        shift = 32u - bits;
+        const std::uint32_t liveStamp = stamp;
+        stamp = 1u;
+        live = 0u;
+        for (const Slot& slot : previous) {
+          if (slot.stamp == liveStamp) {
+            Place(slot.key, slot.node);
+          }
+        }
+      }
+
+      void Clear() noexcept
+      {
+        used = 0u;
+        live = 0u;
+        if (++stamp == 0u) {
+          for (Slot& slot : slots) {
+            slot.stamp = 0u;
+          }
+          stamp = 1u;
+        }
+      }
+    };
+
+    Storage* mStorage;                                   // +0x00
+    [[maybe_unused]] std::uint32_t mUnusedWords[9] = {}; // +0x04 .. +0x27: the binary table's footprint
+  };
+  static_assert(sizeof(PathQueueNodeTable) == 0x28, "PathQueueNodeTable must keep the binary table's 0x28 bytes");
+
 } // namespace
 
 namespace moho
@@ -95,7 +282,7 @@ namespace moho
    *   +0x78 : mPathCap        traveler-supplied expansion cap
    */
   struct PathQueue::ImplBase
-    : gpg::AStarSearch<SOCellPos, PathQueue::ImplBase, PathQueueCellTraits>
+    : gpg::AStarSearch<SOCellPos, PathQueue::ImplBase, PathQueueCellTraits, PathQueueNodeTable>
   {
     /** How one expansion ends: `ExpandNode`'s answer, which `WorkOnce` returns. */
     enum class Step : std::int32_t
