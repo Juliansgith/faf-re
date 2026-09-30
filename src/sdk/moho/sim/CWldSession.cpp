@@ -12844,6 +12844,7 @@ namespace moho
      */
     void WLD_DoPreload()
     {
+      AGENT_LoadMark("preload"); // engine addition: agent-bridge load timing (inert without /agentbridge)
       // ` DoPreload 1` bracket marker: the retail binary constructs one
       // 12-byte `std::string` literal here purely as a profiler/log marker
       // and discards it immediately. Preserved 1:1 to keep observable
@@ -12889,6 +12890,7 @@ namespace moho
       }
 
       gWldFrameAction = EWldFrameAction::Loading;
+      AGENT_LoadMark("preload_done");
 
       // ` DoPreload 2` bracket marker (paired with the opening marker
       // above): same profiler/log-string discard pattern.
@@ -12945,6 +12947,7 @@ namespace moho
         (void)marker;
       }
 
+      AGENT_LoadMark("loaded");
       SWldGameData gameData{};
       (void)loader->LoadGameData(&gameData);
 
@@ -12981,6 +12984,7 @@ namespace moho
       msvc8::auto_ptr<CWldMap> mapOwner(gameData.mWldMap);
       gameData = SWldGameData{};
       CWldSession* const wldSession = WLD_CreateSession(stateOwner, rulesOwner, mapOwner, *sessionInfo);
+      AGENT_LoadMark("session_created");
 
       // The launch info keeps its own copy of the playable map so a restart can
       // rebuild the session without the terrain resource still being alive.
@@ -13036,6 +13040,7 @@ namespace moho
         sessionInfo->mLaunchInfo,
         sessionInfo->mSourceId
       ));
+      AGENT_LoadMark("driver_created"); // engine addition: agent-bridge load timing (inert without /agentbridge)
 
       gWldFrameAction = EWldFrameAction::Initialize;
       if (outContinue != nullptr) {
@@ -13075,6 +13080,7 @@ namespace moho
       if (!simDriver->HasSyncData()) {
         return;
       }
+      AGENT_LoadMark("first_sync");
 
       CWldSession* const session = gActiveWldSession;
       if (session != nullptr && session->mState != nullptr) {
@@ -13116,6 +13122,7 @@ namespace moho
         }
       }
       ::OutputDebugStringA("[INITDIAG] after CreateGameInterface\n");
+      AGENT_LoadMark("game_ui");
 
       // The session info existed only to carry launch parameters into the
       // session; the session owns everything it needed by now.
@@ -13683,6 +13690,7 @@ namespace moho
    */
   void WLD_BeginSession(msvc8::auto_ptr<SWldSessionInfo> sessionInfo)
   {
+    AGENT_LoadMark("begin_session"); // engine addition: agent-bridge load timing (inert without /agentbridge)
     gPendingWldSessionInfo = sessionInfo;
     gWldFrameAction = EWldFrameAction::Preload;
   }

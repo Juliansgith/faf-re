@@ -1,4 +1,5 @@
 #include "CWldSessionLoaderImpl.h"
+#include "moho/agent/AgentBridge.h"
 #include "platform/X87Precision.h"
 
 #include <cfloat>
@@ -113,6 +114,7 @@ namespace moho
         const std::string marker(" World Session Load 1", 21u);
         (void)marker;
       }
+      AGENT_LoadMark("load_start"); // engine addition: agent-bridge load timing (inert without /agentbridge)
 
       RRuleGameRules* const createdRules = RRuleGameRules::Create(scenario->mGameMods, loadControl);
       if (RRuleGameRules* const previousRules = scenario->mGameRules;
@@ -126,6 +128,7 @@ namespace moho
         const std::string marker(" World Session Load 2", 21u);
         (void)marker;
       }
+      AGENT_LoadMark("rules_loaded");
 
       auto* const createdState = new LuaPlus::LuaState(LuaPlus::LuaState::LIB_BASE);
       if (LuaPlus::LuaState* const previousState = scenario->mState;
@@ -170,6 +173,7 @@ namespace moho
         const std::string marker(" World Session Load 6", 21u);
         (void)marker;
       }
+      AGENT_LoadMark("session_lua");
 
       msvc8::auto_ptr<CWldMap> loadedMap(new CWldMap());
       if (loadedMap->MapLoad(scenario->mMapName.c_str(), scenario->mState, false, *loadControl)) {
@@ -185,6 +189,7 @@ namespace moho
         const std::string marker(" World Session Load 7", 21u);
         (void)marker;
       }
+      AGENT_LoadMark("map_loaded");
     }
 
   } // namespace

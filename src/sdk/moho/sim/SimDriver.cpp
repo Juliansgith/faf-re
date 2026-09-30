@@ -1116,8 +1116,10 @@ void CSimDriver::ThreadCreateSim()
   // A throwing Sim::Create is logged and leaves `mSim` empty, which parks the
   // driver in Failed below (std::exception, FuncInfo 0x00F29740 try state 0,
   // handler 0x0073D4C7).
+  AGENT_LoadMark("sim_create"); // engine addition: agent-bridge load timing (inert without /agentbridge)
   try {
     mSim.reset(Sim_Create_exxt(boost::SharedPtrRawFromSharedBorrow(mLaunchInfo)));
+    AGENT_LoadMark("sim_created");
   } catch (const std::exception& error) {
     gpg::Logf("Sim::Create() crashed: %s", error.what());
   }
