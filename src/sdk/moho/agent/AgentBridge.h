@@ -39,6 +39,13 @@ namespace moho
    * orphaned game instances behind.
    */
 
+  /**
+   * Records that the loading phase `phase` (a string literal) was reached, in milliseconds since the
+   * process started; the next hello message reports the marks ("load"). Any thread; inert without
+   * /agentbridge.
+   */
+  void AGENT_LoadMark(const char* phase);
+
   /** Called by `Sim::AdvanceBeat` at its start (sim thread); times the beat for the step report. */
   void AGENT_OnSimBeatStart();
 

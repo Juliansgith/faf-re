@@ -13,6 +13,7 @@
 #include <exception>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -756,11 +757,19 @@ namespace moho
       return 1;
     }
 
+    void RegisterGlobalFunction(lua_State* const L, const char* const name, lua_CFunction function)
+    {
+      lua_pushstring(L, name);
+      lua_pushcclosure(L, function, 0);
+      lua_rawset(L, LUA_GLOBALSINDEX);
+    }
+
+    int AgentLap(lua_State* L);
+
     bool LoadScript(lua_State* const L, const std::string& path, std::string& error)
     {
-      lua_pushstring(L, "AgentBridge_LoadChunk");
-      lua_pushcclosure(L, &AgentLoadChunk, 0);
-      lua_rawset(L, LUA_GLOBALSINDEX);
+      RegisterGlobalFunction(L, "AgentBridge_LoadChunk", &AgentLoadChunk);
+      RegisterGlobalFunction(L, "AgentBridge_Lap", &AgentLap);
 
       std::ifstream file(path, std::ios::binary);
       if (!file) {
@@ -805,6 +814,53 @@ namespace moho
     }
 
     // ---------------------------------------------------------------------------------------------
+    // Load-phase marks (AGENT_LoadMark): milliseconds since the process was created, from any thread.
+
+    struct LoadMarks
+    {
+      std::mutex lock;
+      std::vector<std::pair<const char*, double>> marks;
+    };
+
+    LoadMarks& Marks()
+    {
+      static LoadMarks marks;
+      return marks;
+    }
+
+    double MillisecondsSinceProcessStart()
+    {
+      FILETIME created{}, exited{}, kernel{}, user{};
+      FILETIME now{};
+      ::GetProcessTimes(::GetCurrentProcess(), &created, &exited, &kernel, &user);
+      ::GetSystemTimePreciseAsFileTime(&now);
+      const auto value = [](const FILETIME& t) {
+        return (static_cast<std::uint64_t>(t.dwHighDateTime) << 32) | t.dwLowDateTime;
+      };
+      return static_cast<double>(value(now) - value(created)) / 10000.0;
+    }
+
+    // ,"load":[["phase",ms],...] -- and forgets them (a later session in this process starts afresh)
+    void AppendLoadMarks(std::string& message)
+    {
+      LoadMarks& marks = Marks();
+      std::lock_guard<std::mutex> guard(marks.lock);
+      message += ",\"load\":[";
+      for (std::size_t i = 0; i < marks.marks.size(); ++i) {
+        if (i > 0) {
+          message.push_back(',');
+        }
+        message.push_back('[');
+        AppendJsonString(message, marks.marks[i].first, std::strlen(marks.marks[i].first));
+        message.push_back(',');
+        AppendJsonNumber(message, marks.marks[i].second);
+        message.push_back(']');
+      }
+      message.push_back(']');
+      marks.marks.clear();
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // Per-process runtime state. Only the sim thread touches it.
 
     struct AgentBridgeRuntime
@@ -824,12 +880,58 @@ namespace moho
       LARGE_INTEGER beatStart{};
       double beatMs = 0.0;
       int beats = 0;
+
+      // Sim-thread CPU time (user + kernel, 100 ns units) at the last reply: the CPU the ticks since
+      // then took, as opposed to their wall time (which includes waiting for a CPU).
+      std::uint64_t cpuAtLastReply = 0;
+
+      // Named sections the script times with AgentBridge_Lap(name) during one step.
+      LARGE_INTEGER lapMark{};
+      std::vector<std::pair<std::string, double>> laps;
     };
 
     AgentBridgeRuntime& Runtime()
     {
       static AgentBridgeRuntime runtime;
       return runtime;
+    }
+
+    std::uint64_t ThreadCpu100ns()
+    {
+      FILETIME created{}, exited{}, kernel{}, user{};
+      if (::GetThreadTimes(::GetCurrentThread(), &created, &exited, &kernel, &user) == 0) {
+        return 0;
+      }
+      const auto value = [](const FILETIME& t) {
+        return (static_cast<std::uint64_t>(t.dwHighDateTime) << 32) | t.dwLowDateTime;
+      };
+      return value(kernel) + value(user);
+    }
+
+    // AgentBridge_Lap([name]): adds the time since the previous lap (or the start of the step) to the
+    // section `name`, reported in the step's timing as "laps"; without a name it only restarts the
+    // clock. For profiling the script; costs a clock read.
+    int AgentLap(lua_State* const L)
+    {
+      AgentBridgeRuntime& runtime = Runtime();
+      const LARGE_INTEGER now = Now();
+      if (lua_type(L, 1) == LUA_TSTRING && runtime.lapMark.QuadPart != 0) {
+        LARGE_INTEGER frequency{};
+        ::QueryPerformanceFrequency(&frequency);
+        const double ms =
+          static_cast<double>(now.QuadPart - runtime.lapMark.QuadPart) * 1000.0 / static_cast<double>(frequency.QuadPart);
+        const char* const name = lua_tostring(L, 1);
+        auto it = std::find_if(runtime.laps.begin(), runtime.laps.end(), [name](const auto& lap) {
+          return lap.first == name;
+        });
+        if (it == runtime.laps.end()) {
+          runtime.laps.emplace_back(name, ms);
+        } else {
+          it->second += ms;
+        }
+      }
+      runtime.lapMark = now;
+      return 0;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -931,6 +1033,12 @@ namespace moho
       const LARGE_INTEGER stepStart = Now();
       MarkBusy(true);
       const double simMs = runtime.lastReplyTime.QuadPart != 0 ? MillisecondsSince(runtime.lastReplyTime) : 0.0;
+      const std::uint64_t cpuAtStep = ThreadCpu100ns();
+      const double simCpuMs =
+        runtime.cpuAtLastReply != 0 ? static_cast<double>(cpuAtStep - runtime.cpuAtLastReply) / 10000.0 : 0.0;
+      runtime.laps.clear();
+      runtime.lapMark = stepStart;
+      double observeLuaMs = 0.0;
 
       // ---- build and send the message
       std::string message;
@@ -956,6 +1064,8 @@ namespace moho
           }
         }
         runtime.helloSent = true;
+        AGENT_LoadMark("hello");
+        AppendLoadMarks(message);
       } else {
         message += "{\"type\":\"obs\",\"tick\":";
         AppendJsonNumber(message, static_cast<double>(tick));
@@ -963,7 +1073,9 @@ namespace moho
         message += ",\"result\":";
         message += runtime.lastResultJson;
         message += ",\"obs\":";
-        if (CallScriptFunction(L, "AgentBridge_Observe", 0, error)) {
+        const bool observed = CallScriptFunction(L, "AgentBridge_Observe", 0, error);
+        observeLuaMs = MillisecondsSince(stepStart);
+        if (observed) {
           EncodeLuaValue(L, -1, message, 0);
           lua_settop(L, -2);
         } else {
@@ -974,8 +1086,28 @@ namespace moho
       const double observeMs = MillisecondsSince(stepStart);
       message += ",\"timing\":{\"simMs\":";
       AppendJsonNumber(message, simMs);
+      message += ",\"simCpuMs\":";
+      AppendJsonNumber(message, simCpuMs);
       message += ",\"observeMs\":";
       AppendJsonNumber(message, observeMs);
+      message += ",\"observeLuaMs\":";
+      AppendJsonNumber(message, observeLuaMs);
+      message += ",\"obsBytes\":";
+      AppendJsonNumber(message, static_cast<double>(message.size()));
+      message += ",\"luaKB\":";
+      AppendJsonNumber(message, static_cast<double>(lua_getgccount(L)));
+      if (!runtime.laps.empty()) {
+        message += ",\"laps\":{";
+        for (std::size_t i = 0; i < runtime.laps.size(); ++i) {
+          if (i > 0) {
+            message.push_back(',');
+          }
+          AppendJsonString(message, runtime.laps[i].first);
+          message.push_back(':');
+          AppendJsonNumber(message, runtime.laps[i].second);
+        }
+        message.push_back('}');
+      }
       message += ",\"actMs\":";
       AppendJsonNumber(message, runtime.lastActMs);
       message += ",\"beatMs\":";
@@ -1054,6 +1186,7 @@ namespace moho
       runtime.nextTick = tick + static_cast<std::uint32_t>(waitTicks);
       runtime.lastActMs = MillisecondsSince(actStart);
       runtime.lastReplyTime = Now();
+      runtime.cpuAtLastReply = ThreadCpu100ns();
       MarkBusy(false);
     }
   } // namespace
@@ -1085,6 +1218,17 @@ namespace moho
     const NetDiagnosticsStarter gNetDiagnosticsStarter{};
   } // namespace
 
+  void AGENT_LoadMark(const char* const phase)
+  {
+    if (!Config().enabled) {
+      return;
+    }
+    const double ms = MillisecondsSinceProcessStart();
+    LoadMarks& marks = Marks();
+    std::lock_guard<std::mutex> guard(marks.lock);
+    marks.marks.emplace_back(phase, ms);
+  }
+
   void AGENT_OnSimBeatStart()
   {
     if (Config().enabled) {
@@ -1114,6 +1258,7 @@ namespace moho
     // A new session in this process (or the first one): reload the script into its Lua state and
     // restart the handshake.
     if (runtime.scriptState != L) {
+      AGENT_LoadMark("first_beat");
       runtime.helloSent = false;
       runtime.nextTick = 0;
       runtime.lastTick = UINT32_MAX;
