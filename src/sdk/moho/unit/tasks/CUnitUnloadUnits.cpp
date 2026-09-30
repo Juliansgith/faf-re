@@ -93,19 +93,13 @@ namespace
   // into `CUnitUnloadUnits::MemberDeserialize`/`MemberSerialize` via the
   // template body.
 
-  [[nodiscard]]
-  moho::BVSet<moho::EntId, moho::EntIdUniverse> BuildSelectedEntitySetFromUnits(
-    const moho::EntitySetTemplate<moho::Unit>& units
-  )
+  void AddUsableDetachedUnits(moho::EntitySetTemplate<moho::Unit>& selected, const moho::EntitySetTemplate<moho::Unit>& units)
   {
-    moho::BVSet<moho::EntId, moho::EntIdUniverse> selected{};
     for (moho::Unit* const unit : units) {
-      if (!IsUsableDetachedUnit(unit)) {
-        continue;
+      if (IsUsableDetachedUnit(unit)) {
+        (void)selected.Add(unit);
       }
-      (void)selected.mBits.Add(static_cast<unsigned int>(unit->id_));
     }
-    return selected;
   }
 } // namespace
 
@@ -417,9 +411,14 @@ namespace moho
           commandIssueData.mTarget.mEntityId = kGroundTargetEntityIdTag;
           commandIssueData.mTarget.mPos = unloadWorldPos;
 
-          const BVSet<EntId, EntIdUniverse> selectedUnits = BuildSelectedEntitySetFromUnits(detachedUnits);
-          if (selectedUnits.mBits.Count() != 0u) {
-            mUnit->SimulationRef->IssueCommand(selectedUnits, commandIssueData, true);
+          // 0x006269EB..0x006269FC: `UNIT_IssueCommand(sim, detachedUnits, issueData, clearQueue = 1)` -- a
+          // sim-internal order. Through `Sim::IssueCommand` (the command-stream entry) it was rejected for
+          // its missing network command id, so units leaving a staging platform or a factory-like
+          // transport never got their move off it.
+          EntitySetTemplate<Unit> selectedUnits{};
+          AddUsableDetachedUnits(selectedUnits, detachedUnits);
+          if (!selectedUnits.Empty()) {
+            (void)IssueCommandToSelectedUnits(mUnit->SimulationRef, selectedUnits, commandIssueData, true);
           }
         }
 
