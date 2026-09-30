@@ -5,14 +5,17 @@
 #include <ws2tcpip.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <charconv>
+#include <cstdarg>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <exception>
 #include <fstream>
+#include <intrin.h>
 #include <iterator>
 #include <mutex>
 #include <string>
@@ -20,14 +23,17 @@
 #include <thread>
 #include <vector>
 
+#include "gpg/core/utils/Global.h"
 #include "gpg/core/utils/Logging.h"
 #include "legacy/containers/String.h"
 #include "legacy/containers/Vector.h"
 #include "lua/LuaObject.h"
 #include "moho/misc/StartupHelpers.h"
 #include "moho/net/CClientManagerImpl.h"
+#include "moho/sim/CSimConVarInstanceBase.h"
 #include "moho/sim/CWldSession.h"
 #include "moho/sim/Sim.h"
+#include "moho/sim/SimDebugCommandRegistrations.h"
 #include "moho/sim/SimDriver.h"
 #include "platform/X87Precision.h"
 
@@ -62,6 +68,7 @@ namespace moho
       bool keepVisualEffects = false;
       bool leanLoading = false;
       int watchdogSeconds = 60;
+      int checksumPeriod = 0; // /agentchecksum: sim_ChecksumPeriod for the session (0: the sim's own, 50)
     };
 
     int ParseIntArgument(const msvc8::string& text, const int fallback)
@@ -72,6 +79,14 @@ namespace moho
       const auto [ptr, ec] = std::from_chars(begin, end, value);
       return (ec == std::errc{} && ptr != begin) ? value : fallback;
     }
+
+    int PoisonByte(); // /agentpoison's fill byte, -1 when off (defined with the hook below)
+    // /agentpoisonsizes <min> <max>: only blocks of a requested size in [min, max] get the byte, the rest 0 --
+    // for bisecting which allocation an uninitialised read comes from
+    int gPoisonMinSize = 0;
+    int gPoisonMaxSize = 0x7FFFFFFF;
+    int gPoisonFromByte = 0;
+    int gPoisonToByte = 0x7FFFFFFF;
 
     AgentBridgeConfig ParseConfig()
     {
@@ -107,6 +122,9 @@ namespace moho
       if (CFG_GetArgOption("/agentwatchdog", 1, &args) && !args.empty()) {
         config.watchdogSeconds = std::max(0, ParseIntArgument(args[0], config.watchdogSeconds));
       }
+      if (CFG_GetArgOption("/agentchecksum", 1, &args) && !args.empty()) {
+        config.checksumPeriod = std::max(0, ParseIntArgument(args[0], 0));
+      }
 
       config.enabled = true;
       gpg::Logf(
@@ -115,6 +133,13 @@ namespace moho
         config.scriptPath.c_str(),
         config.speed
       );
+      if (config.checksumPeriod > 0) {
+        gpg::Logf("AgentBridge: sim checksum every %d beats.", config.checksumPeriod);
+      }
+      if (const int poison = PoisonByte(); poison >= 0) {
+        gpg::Logf("AgentBridge: new heap blocks are filled with 0x%02X (/agentpoison; sizes %d..%d).", poison,
+                  gPoisonMinSize, gPoisonMaxSize);
+      }
       return config;
     }
 
@@ -898,7 +923,27 @@ namespace moho
       // Named sections the script times with AgentBridge_Lap(name) during one step.
       LARGE_INTEGER lapMark{};
       std::vector<std::pair<std::string, double>> laps;
+
+      // The first beat whose checksum the next message reports ("sums").
+      std::uint32_t nextSumBeat = 0;
+      // Command-stream messages consumed since the last step, as [beat, op, arg] ("stream").
+      std::vector<std::array<std::uint32_t, 3>> streamOps;
     };
+
+    // AGENT_NoteStreamOp's messages until the beat that consumes them ends (AGENT_OnSimBeat). The
+    // decoder and the beat both run on the sim thread; the lock only guards against surprises.
+    struct PendingStreamOps
+    {
+      std::mutex lock;
+      std::vector<std::pair<std::uint32_t, std::uint32_t>> ops;
+      std::uint32_t lastSource = UINT32_MAX;
+    };
+
+    PendingStreamOps& StreamOps()
+    {
+      static PendingStreamOps ops;
+      return ops;
+    }
 
     AgentBridgeRuntime& Runtime()
     {
@@ -1037,6 +1082,59 @@ namespace moho
       errors.clear();
     }
 
+    // ,"beat":B,"sums":[[beat,"md5"],...] -- the sim's per-beat checksums (Sim::Sync closes beat b's into
+    // mSimHashes[b & 127]; this runs inside beat B's AdvanceBeat, so beats before B are final) -- and
+    // ,"stream":[[beat,op,arg],...] when the command stream carried anything but beat bookkeeping.
+    void AppendBeatReport(std::string& message, Sim* const sim, AgentBridgeRuntime& runtime)
+    {
+      const std::uint32_t beat = sim->mCurBeat;
+      message += ",\"beat\":";
+      AppendJsonNumber(message, static_cast<double>(beat));
+      message += ",\"sums\":[";
+      std::uint32_t first = runtime.nextSumBeat;
+      if (beat > first + 127u) {
+        first = beat - 127u; // older ones are overwritten in the ring
+      }
+      bool any = false;
+      for (std::uint32_t b = first; b < beat; ++b) {
+        const gpg::MD5Digest& digest = sim->mSimHashes[b & 0x7Fu];
+        if ((digest.vals[0] | digest.vals[1] | digest.vals[2] | digest.vals[3]) == 0u) {
+          continue; // not a checksum beat (sim_ChecksumPeriod)
+        }
+        if (any) {
+          message.push_back(',');
+        }
+        any = true;
+        message.push_back('[');
+        AppendJsonNumber(message, static_cast<double>(b));
+        message.push_back(',');
+        const msvc8::string text = digest.ToString();
+        AppendJsonString(message, text.c_str(), std::strlen(text.c_str()));
+        message.push_back(']');
+      }
+      message.push_back(']');
+      runtime.nextSumBeat = beat;
+
+      if (!runtime.streamOps.empty()) {
+        message += ",\"stream\":[";
+        for (std::size_t i = 0; i < runtime.streamOps.size(); ++i) {
+          if (i > 0) {
+            message.push_back(',');
+          }
+          const auto& op = runtime.streamOps[i];
+          message.push_back('[');
+          AppendJsonNumber(message, op[0]);
+          message.push_back(',');
+          AppendJsonNumber(message, op[1]);
+          message.push_back(',');
+          AppendJsonNumber(message, op[2]);
+          message.push_back(']');
+        }
+        message.push_back(']');
+        runtime.streamOps.clear();
+      }
+    }
+
     void RunStep(Sim* const sim, lua_State* const L, AgentBridgeRuntime& runtime, const bool gameOver)
     {
       const std::uint32_t tick = sim->mCurTick;
@@ -1074,6 +1172,8 @@ namespace moho
           }
         }
         runtime.helloSent = true;
+        runtime.nextSumBeat = sim->mCurBeat;
+        runtime.streamOps.clear();
         AGENT_LoadMark("hello");
         AppendLoadMarks(message);
       } else {
@@ -1082,6 +1182,7 @@ namespace moho
         message += gameOver ? ",\"gameOver\":true" : ",\"gameOver\":false";
         message += ",\"result\":";
         message += runtime.lastResultJson;
+        AppendBeatReport(message, sim, runtime);
         message += ",\"obs\":";
         const bool observed = CallScriptFunction(L, "AgentBridge_Observe", 0, error);
         observeLuaMs = MillisecondsSince(stepStart);
@@ -1244,6 +1345,78 @@ namespace moho
       }
     };
     const NetDiagnosticsStarter gNetDiagnosticsStarter{};
+
+    // Diagnostics (engine addition): with /agentpoison <byte>, every heap block the engine allocator hands
+    // out is filled with that byte first (the allocator's memory hook, as /alloclog uses it). A reused block
+    // otherwise holds whatever its last owner -- on any thread -- left there, so state read before it is
+    // written differs from run to run; with a fixed fill it does not, and with two different fills it
+    // differs at once. For finding reads of uninitialised memory that reach the sim.
+    int gPoisonByte = 0;
+
+    void PoisonHook(const int isFreeing, const int size, ...)
+    {
+      if (isFreeing != 0 || size <= 0) {
+        return;
+      }
+      va_list args;
+      va_start(args, size);
+      void* const block = va_arg(args, void*);
+      va_end(args);
+      if (block != nullptr) {
+        const bool chosen = size >= gPoisonMinSize && size <= gPoisonMaxSize;
+        std::memset(block, 0, static_cast<std::size_t>(size));
+        if (chosen) {
+          // /agentpoisonbytes <from> <to>: only that byte range of a chosen block
+          const int from = std::clamp(gPoisonFromByte, 0, size);
+          const int to = std::clamp(gPoisonToByte, from, size);
+          std::memset(static_cast<char*>(block) + from, gPoisonByte, static_cast<std::size_t>(to - from));
+        }
+      }
+    }
+
+    struct PoisonStarter
+    {
+      PoisonStarter()
+      {
+        msvc8::vector<msvc8::string> args;
+        if (CFG_GetArgOption("/agentpoison", 1, &args) && !args.empty()) {
+          gPoisonByte = ParseIntArgument(args[0], 0) & 0xFF;
+          if (CFG_GetArgOption("/agentpoisonsizes", 2, &args) && args.size() >= 2) {
+            gPoisonMinSize = ParseIntArgument(args[0], 0);
+            gPoisonMaxSize = ParseIntArgument(args[1], 0x7FFFFFFF);
+          }
+          if (CFG_GetArgOption("/agentpoisonbytes", 2, &args) && args.size() >= 2) {
+            gPoisonFromByte = ParseIntArgument(args[0], 0);
+            gPoisonToByte = ParseIntArgument(args[1], 0x7FFFFFFF);
+          }
+          gpg::SetMemHook(&PoisonHook);
+        }
+      }
+    };
+    const PoisonStarter gPoisonStarter{};
+
+    int PoisonByte()
+    {
+      return gpg::GetMemHook() == &PoisonHook ? gPoisonByte : -1;
+    }
+
+    // The byte the stack scrub uses: the poison byte, or 0 while /agentpoisonsizes narrows the poison down
+    int StackScrubByte()
+    {
+      const int poison = PoisonByte();
+      return (poison >= 0 && (gPoisonMinSize > 0 || gPoisonMaxSize < 0x7FFFFFFF)) ? 0 : poison;
+    }
+
+    // Overwrites the 48 KB of stack below the caller's frame with `value`: what a following call reads from
+    // a local it never wrote is then this byte, not what earlier code happened to leave there.
+    __declspec(noinline) void ScrubStack(const unsigned char value)
+    {
+      unsigned char buffer[48 * 1024];
+      __stosb(buffer, value, sizeof(buffer));
+      _ReadWriteBarrier();
+      volatile unsigned char sink = buffer[value];
+      (void)sink;
+    }
   } // namespace
 
   void AGENT_LoadMark(const char* const phase)
@@ -1257,11 +1430,39 @@ namespace moho
     marks.marks.emplace_back(phase, ms);
   }
 
+  void AGENT_NoteStreamOp(const unsigned op, const unsigned arg)
+  {
+    if (!Config().enabled) {
+      return;
+    }
+    // Beat bookkeeping is left out: Advance (0) and VerifyChecksum (3) come with every beat, and a
+    // SetCommandSource (1) only matters when the source changes.
+    if (op == 0u || op == 3u) {
+      return;
+    }
+    PendingStreamOps& pending = StreamOps();
+    std::lock_guard<std::mutex> guard(pending.lock);
+    if (op == 1u) {
+      if (arg == pending.lastSource) {
+        return;
+      }
+      pending.lastSource = arg;
+    }
+    if (pending.ops.size() < 4096u) {
+      pending.ops.emplace_back(op, arg);
+    }
+  }
+
   void AGENT_OnSimBeatStart()
   {
     if (Config().enabled) {
       Runtime().beatStart = Now();
       MarkBusy(true);
+      // /agentpoison also covers the stack: whatever ran on the sim thread before this beat (waits, the
+      // bridge's socket and timing code) left run-dependent values below the stack pointer
+      if (const int poison = StackScrubByte(); poison >= 0) {
+        ScrubStack(static_cast<unsigned char>(poison));
+      }
     }
   }
 
@@ -1293,6 +1494,28 @@ namespace moho
       runtime.gameOverReported = false;
       runtime.lastResultJson = "null";
       runtime.lastReplyTime = LARGE_INTEGER{};
+      runtime.nextSumBeat = 0;
+      runtime.streamOps.clear();
+      // /agentchecksum: checksum every `period` beats instead of every 50 (1: the "sums" of every beat)
+      if (config.checksumPeriod > 0) {
+        if (CSimConVarInstanceBase* const instance = sim->GetSimVar(&gSimConVar_sim_ChecksumPeriod)) {
+          if (void* const storage = instance->GetValueStorage()) {
+            *static_cast<int*>(storage) = config.checksumPeriod;
+          }
+        }
+      }
+    }
+
+    // The command-stream messages this beat consumed (decoded before its AdvanceBeat).
+    {
+      PendingStreamOps& pending = StreamOps();
+      std::lock_guard<std::mutex> guard(pending.lock);
+      for (const auto& [op, arg] : pending.ops) {
+        if (runtime.streamOps.size() < 4096u) {
+          runtime.streamOps.push_back({sim->mCurBeat, op, arg});
+        }
+      }
+      pending.ops.clear();
     }
 
     // Step when a tick has run and is due, and once more when the game ends.
@@ -1341,6 +1564,9 @@ namespace moho
 
     RunStep(sim, L, runtime, gameOver);
     lua_settop(L, savedTop);
+    if (const int poison = StackScrubByte(); poison >= 0) {
+      ScrubStack(static_cast<unsigned char>(poison)); // the step's socket and timing values
+    }
   }
 
   int AGENT_ResolvePacingSimRate(const int requestedSimRate)
