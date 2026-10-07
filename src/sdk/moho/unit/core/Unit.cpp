@@ -5575,7 +5575,11 @@ int moho::cfunc_UnitSetPausedL(LuaPlus::LuaState* const state)
 
   const LuaPlus::LuaStackObject pausedArg(state, 2);
   const bool paused = pausedArg.GetBoolean();
-  unit->SetPaused(paused);
+  // A Lua unit wrapper can survive destruction of its native payload.
+  // GetUnitOptional deliberately returns null for that stale wrapper.
+  if (unit != nullptr) {
+    unit->SetPaused(paused);
+  }
 
   return 0;
 }
@@ -5629,7 +5633,9 @@ int moho::cfunc_UnitSetConsumptionActiveL(LuaPlus::LuaState* const state)
 
   const LuaPlus::LuaStackObject activeArg(state, 2);
   const bool isActive = activeArg.GetBoolean();
-  unit->SetConsumptionActive(isActive);
+  if (unit != nullptr) {
+    unit->SetConsumptionActive(isActive);
+  }
 
   return 1;
 }
