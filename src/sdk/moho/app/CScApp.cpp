@@ -1061,8 +1061,13 @@ void CScApp::Main()
     uiManager->UpdateFrameRate(frameSeconds);
   }
 
-  bool minimizedNow = false;
-  if (moho::sMainWindow != nullptr) {
+  // [AGENT] /agentheadless: once its session runs, the game behaves as if minimized -- it never draws, and waits
+  // for the next sim beat instead. Training games on Windows get there by being minimized after they connect;
+  // under Wine on a server nothing minimizes them, and drawing every frame in software took three times the CPU
+  // of the simulation. Not before the session exists: loading needs frames (and has no beat to wait for).
+  static const bool headless = moho::CFG_GetArgOption("/agentheadless", 0, nullptr);
+  bool minimizedNow = headless && activeSession != nullptr;
+  if (!minimizedNow && moho::sMainWindow != nullptr) {
     const HWND windowHandle = reinterpret_cast<HWND>(static_cast<std::uintptr_t>(moho::sMainWindow->GetHandle()));
     minimizedNow = windowHandle != nullptr && ::IsIconic(windowHandle) != FALSE;
   }
