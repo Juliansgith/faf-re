@@ -5567,6 +5567,7 @@
     <ClCompile Include="moho\movie\sfd\SfdHeaderParser.cpp" />
     <ClInclude Include="moho\movie\sfd\SfdHeaderParser.h" />
     <ClCompile Include="moho\movie\sfd\FfmpegSfdDecoder.cpp" />
+    <ClCompile Include="moho\movie\sfd\FfmpegSfdDecoderDisabled.cpp" />
     <ClInclude Include="moho\movie\sfd\FfmpegSfdDecoder.h" />
     <ClCompile Include="moho\movie\sfd\DirectSoundMovieSink.cpp" />
     <ClInclude Include="moho\movie\sfd\DirectSoundMovieSink.h" />
