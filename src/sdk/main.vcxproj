@@ -161,6 +161,12 @@
   </PropertyGroup>
   <PropertyGroup>
     <FafFfmpegRoot Condition="'$(FafFfmpegRoot)'==''">$(FafRepoRoot)dependencies\ffmpeg\$(Platform)</FafFfmpegRoot>
+    <!-- /p:FafFfmpeg=false builds without FFmpeg: no FFmpeg headers, import libraries or DLLs are
+         needed, and every .sfd movie fails to open (moho\movie\sfd\FfmpegSfdDecoderDisabled.cpp).
+         For headless/automated use where no movie is ever watched. -->
+    <FafFfmpeg Condition="'$(FafFfmpeg)'==''">true</FafFfmpeg>
+    <FafFfmpegLibs>avformat.lib;avcodec.lib;avutil.lib;swscale.lib;swresample.lib;</FafFfmpegLibs>
+    <FafFfmpegLibs Condition="'$(FafFfmpeg)'=='false'"></FafFfmpegLibs>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -216,7 +222,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(FafFfmpegRoot)\lib;$(DirectXLibX86);$(FafRepoRoot)dependencies\wxWindows-2.4.2\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>avformat.lib;avcodec.lib;avutil.lib;swscale.lib;swresample.lib;ws2_32.lib;d3d9.lib;d3dx9.lib;d3d10.lib;dxgi.lib;dxguid.lib;dsound.lib;x3daudio.lib;legacy_stdio_definitions.lib;legacy_stdio_wide_specifiers.lib;dbghelp.lib;winmm.lib;version.lib;comctl32.lib;shlwapi.lib;faultrep.lib;zlib.lib;wxmswu.lib;regex.lib;png.lib;jpeg.lib;tiff.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(FafFfmpegLibs)ws2_32.lib;d3d9.lib;d3dx9.lib;d3d10.lib;dxgi.lib;dxguid.lib;dsound.lib;x3daudio.lib;legacy_stdio_definitions.lib;legacy_stdio_wide_specifiers.lib;dbghelp.lib;winmm.lib;version.lib;comctl32.lib;shlwapi.lib;faultrep.lib;zlib.lib;wxmswu.lib;regex.lib;png.lib;jpeg.lib;tiff.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4006 %(AdditionalOptions)</AdditionalOptions>
       <IgnoreSpecificDefaultLibraries>msvcrt.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <ForceFileOutput>Enabled</ForceFileOutput>
@@ -268,7 +274,7 @@ if exist "$(FafRunDir)" if exist "$(TargetDir)$(TargetName).pdb" xcopy /D /Y /Q 
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(FafFfmpegRoot)\lib;$(DirectXLibX86);$(FafRepoRoot)dependencies\wxWindows-2.4.2\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>avformat.lib;avcodec.lib;avutil.lib;swscale.lib;swresample.lib;ws2_32.lib;d3d9.lib;d3dx9.lib;d3d10.lib;dxgi.lib;dxguid.lib;dsound.lib;x3daudio.lib;legacy_stdio_definitions.lib;legacy_stdio_wide_specifiers.lib;dbghelp.lib;winmm.lib;version.lib;comctl32.lib;shlwapi.lib;faultrep.lib;zlib.lib;wxmswu.lib;regex.lib;png.lib;jpeg.lib;tiff.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(FafFfmpegLibs)ws2_32.lib;d3d9.lib;d3dx9.lib;d3d10.lib;dxgi.lib;dxguid.lib;dsound.lib;x3daudio.lib;legacy_stdio_definitions.lib;legacy_stdio_wide_specifiers.lib;dbghelp.lib;winmm.lib;version.lib;comctl32.lib;shlwapi.lib;faultrep.lib;zlib.lib;wxmswu.lib;regex.lib;png.lib;jpeg.lib;tiff.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4006 %(AdditionalOptions)</AdditionalOptions>
       <!-- Mirror of the Debug link, which excludes the release CRT so nothing
            can drag it in beside the debug one. This configuration uses the
@@ -340,7 +346,7 @@ if exist "$(FafRunDir)" if exist "$(TargetDir)$(TargetName).pdb" xcopy /D /Y /Q 
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(FafFfmpegRoot)\lib;$(DirectXLibX64);$(FafRepoRoot)dependencies\zlib-1.2.3;$(FafRepoRoot)dependencies\wxWindows-2.4.2\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>avformat.lib;avcodec.lib;avutil.lib;swscale.lib;swresample.lib;ws2_32.lib;d3d9.lib;d3dx9.lib;d3d10.lib;dxgi.lib;dxguid.lib;dsound.lib;x3daudio.lib;legacy_stdio_definitions.lib;legacy_stdio_wide_specifiers.lib;dbghelp.lib;winmm.lib;version.lib;comctl32.lib;shlwapi.lib;faultrep.lib;zlib.lib;wxmswu.lib;regex.lib;png.lib;jpeg.lib;tiff.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(FafFfmpegLibs)ws2_32.lib;d3d9.lib;d3dx9.lib;d3d10.lib;dxgi.lib;dxguid.lib;dsound.lib;x3daudio.lib;legacy_stdio_definitions.lib;legacy_stdio_wide_specifiers.lib;dbghelp.lib;winmm.lib;version.lib;comctl32.lib;shlwapi.lib;faultrep.lib;zlib.lib;wxmswu.lib;regex.lib;png.lib;jpeg.lib;tiff.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4006 $(FafX64AddressLinkOptions) %(AdditionalOptions)</AdditionalOptions>
       <IgnoreSpecificDefaultLibraries>msvcrt.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <ForceFileOutput>Enabled</ForceFileOutput>
@@ -377,7 +383,7 @@ if exist "$(FafRunDir)" if exist "$(TargetDir)$(TargetName).pdb" xcopy /D /Y /Q 
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(FafFfmpegRoot)\lib;$(DirectXLibX64);$(FafRepoRoot)dependencies\zlib-1.2.3;$(FafRepoRoot)dependencies\wxWindows-2.4.2\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>avformat.lib;avcodec.lib;avutil.lib;swscale.lib;swresample.lib;ws2_32.lib;d3d9.lib;d3dx9.lib;d3d10.lib;dxgi.lib;dxguid.lib;dsound.lib;x3daudio.lib;legacy_stdio_definitions.lib;legacy_stdio_wide_specifiers.lib;dbghelp.lib;winmm.lib;version.lib;comctl32.lib;shlwapi.lib;faultrep.lib;zlib.lib;wxmswu.lib;regex.lib;png.lib;jpeg.lib;tiff.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(FafFfmpegLibs)ws2_32.lib;d3d9.lib;d3dx9.lib;d3d10.lib;dxgi.lib;dxguid.lib;dsound.lib;x3daudio.lib;legacy_stdio_definitions.lib;legacy_stdio_wide_specifiers.lib;dbghelp.lib;winmm.lib;version.lib;comctl32.lib;shlwapi.lib;faultrep.lib;zlib.lib;wxmswu.lib;regex.lib;png.lib;jpeg.lib;tiff.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4006 $(FafX64AddressLinkOptions) %(AdditionalOptions)</AdditionalOptions>
       <IgnoreSpecificDefaultLibraries>msvcrtd.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <ForceFileOutput>Enabled</ForceFileOutput>
@@ -2564,19 +2570,23 @@ if exist "$(FafRunDir)" if exist "$(TargetDir)$(TargetName).pdb" xcopy /D /Y /Q 
     <ClCompile Include="moho\movie\sfd\SfdHeaderParser.cpp" />
     <ClInclude Include="moho\movie\sfd\SfdHeaderParser.h" />
     <ClCompile Include="moho\movie\sfd\FfmpegSfdDecoder.cpp">
+      <ExcludedFromBuild Condition="'$(FafFfmpeg)'=='false'">true</ExcludedFromBuild>
       <AdditionalOptions>/external:I"$(FafFfmpegRoot)\include" %(AdditionalOptions)</AdditionalOptions>
       <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
     </ClCompile>
     <ClInclude Include="moho\movie\sfd\FfmpegSfdDecoder.h" />
+    <ClCompile Include="moho\movie\sfd\FfmpegSfdDecoderDisabled.cpp">
+      <ExcludedFromBuild Condition="'$(FafFfmpeg)'!='false'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="moho\movie\sfd\DirectSoundMovieSink.cpp" />
     <ClInclude Include="moho\movie\sfd\DirectSoundMovieSink.h" />
     <ClCompile Include="moho\movie\sfd\SfdMetadata.cpp" />
     <ClInclude Include="moho\movie\sfd\SfdMetadata.h" />
   </ItemGroup>
   <Target Name="CheckFafFfmpeg" BeforeTargets="ClCompile">
-    <Error Condition="!Exists('$(FafFfmpegRoot)\include\libavcodec\avcodec.h')" Text="FFmpeg development package missing. Set FafFfmpegRoot; see docs/FAF_SFD_COMPATIBILITY.md." />
+    <Error Condition="'$(FafFfmpeg)'!='false' and !Exists('$(FafFfmpegRoot)\include\libavcodec\avcodec.h')" Text="FFmpeg development package missing. Set FafFfmpegRoot; see docs/FAF_SFD_COMPATIBILITY.md." />
   </Target>
-  <Target Name="StageFafFfmpeg" AfterTargets="Build">
+  <Target Name="StageFafFfmpeg" AfterTargets="Build" Condition="'$(FafFfmpeg)'!='false'">
     <ItemGroup><FafFfmpegDll Include="$(FafFfmpegRoot)\bin\*.dll" /></ItemGroup>
     <Copy SourceFiles="@(FafFfmpegDll)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
     <Copy Condition="'$(FafStageToRunDir)'=='true' and Exists('$(FafRunDir)')" SourceFiles="@(FafFfmpegDll)" DestinationFolder="$(FafRunDir)" SkipUnchangedFiles="true" />
