@@ -76,6 +76,15 @@ if(FAF_LINUX)
       set(_faf_linux_fp "-ffp-contract=fast;-fno-math-errno;-fno-trapping-math;-fno-signed-zeros;-freciprocal-math;-fassociative-math")
       target_compile_definitions(faf_codegen INTERFACE FAF_ULTRA_FP=1)
     endif()
+    set(FAF_ULTRA_PGO_USE "" CACHE FILEPATH "With FAF_ULTRA: a merged .profdata to optimise with (PGO)")
+    option(FAF_ULTRA_PGO_GEN "With FAF_ULTRA: an instrumented build that writes a .profraw" OFF)
+    if(FAF_ULTRA_PGO_GEN)
+      list(APPEND _faf_linux_perf "-fprofile-instr-generate")
+      target_link_options(faf_codegen INTERFACE -fprofile-instr-generate)
+    elseif(FAF_ULTRA_PGO_USE)
+      list(APPEND _faf_linux_perf "-fprofile-instr-use=${FAF_ULTRA_PGO_USE}" "-Wno-profile-instr-unprofiled"
+           "-Wno-profile-instr-out-of-date" "-Wno-backend-plugin")
+    endif()
   endif()
   target_compile_options(faf_codegen INTERFACE
     "$<$<COMPILE_LANGUAGE:C,CXX>:${_faf_linux_fp};-fno-strict-aliasing;-fwrapv;-fno-delete-null-pointer-checks;-fno-strict-float-cast-overflow;-fno-finite-loops;-fsigned-char;-ffunction-sections;-fdata-sections;-Wno-overriding-option;${_faf_linux_perf}>"

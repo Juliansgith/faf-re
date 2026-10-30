@@ -299,6 +299,9 @@ int main(int argc, char** argv)
   if (options.boneStatsPath.empty()) {
     moho::CON_Execute("sim_SyncPoses 0");
   }
+  if (options.laneSizesPath.empty()) {
+    moho::CON_Execute("sim_SyncParticles 0"); // --lane-sizes counts the particle lanes
+  }
   RunStartupConsoleCommands();
   moho::PlaceCurrentThread(moho::EThreadRole::Main);
 

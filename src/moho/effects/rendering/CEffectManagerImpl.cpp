@@ -50,6 +50,16 @@ namespace moho
     &sim_ParallelEffects
   );
 
+  // Engine addition (faf-neural-ai, performance): 0 drops the particles, trails and beams the workers
+  // produce instead of committing them, one push_back each, into the sim's particle buffer on the sim
+  // thread -- only the renderer reads that buffer. For runs that draw nothing (headless, training).
+  bool sim_SyncParticles = true;
+  TConVar<bool> gTConVar_sim_SyncParticles(
+    "sim_SyncParticles",
+    "Commit effect particles for the user side (off: nothing draws them).",
+    &sim_SyncParticles
+  );
+
   int sim_ParallelEffectsMin = 64;
   TConVar<int> gTConVar_sim_ParallelEffectsMin(
     "sim_ParallelEffectsMin",
@@ -568,6 +578,12 @@ namespace moho
 
       SParticleBuffer& produced = chunk.mParticles;
       if (produced.mParticles.empty() && produced.mTrails.empty() && produced.mBeams.empty()) {
+        continue;
+      }
+      if (!sim_SyncParticles) {
+        produced.mParticles.clear();
+        produced.mTrails.clear();
+        produced.mBeams.clear();
         continue;
       }
       if (target == nullptr) {
