@@ -33,6 +33,10 @@
 #include "headless/ReplayLaunchCheck.h"
 #include "headless/ReplayRunner.h"
 
+#if defined(FAF_ULTRA_PGO_GEN)
+extern "C" int __llvm_profile_write_file(void); // compiler-rt profile runtime
+#endif
+
 namespace
 {
   // Exit codes: 0 every recorded checksum matched and the replay reached its end; 1 at least
@@ -44,6 +48,7 @@ namespace
   constexpr int kExitCrash = 3;
   constexpr int kExitBadInput = 4;
 
+
   /// `sim_ChecksumPeriod` of the players' games, the period the recorded checksums were taken at.
   constexpr int kRecordedChecksumPeriod = 50;
 
@@ -53,6 +58,10 @@ namespace
   {
     // Every output stream: stdout, stderr and the --disk-trace file.
     std::fflush(nullptr);
+#if defined(FAF_ULTRA_PGO_GEN)
+    // An instrumented (PGO) build writes its profile at exit, which _Exit/TerminateProcess skip.
+    (void)__llvm_profile_write_file();
+#endif
     // The sim and loader threads are still running; nothing after the verdict is observed,
     // so the process ends here instead of tearing them down.
 #if defined(_WIN32)
@@ -302,6 +311,7 @@ int main(int argc, char** argv)
   if (options.laneSizesPath.empty()) {
     moho::CON_Execute("sim_SyncParticles 0"); // --lane-sizes counts the particle lanes
   }
+  moho::CON_Execute("sim_DecalVisibility 0");
   RunStartupConsoleCommands();
   moho::PlaceCurrentThread(moho::EThreadRole::Main);
 

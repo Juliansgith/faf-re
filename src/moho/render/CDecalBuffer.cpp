@@ -17,10 +17,26 @@
 #include "moho/render/CDecalHandle.h"
 #include "moho/sim/CArmyImpl.h"
 #include "moho/sim/Sim.h"
+#include "moho/agent/AgentBridge.h"
+#include "moho/console/CConCommand.h"
 
 using namespace moho;
 
 gpg::RType* CDecalBuffer::sType = nullptr;
+
+namespace
+{
+  // Engine addition (faf-neural-ai, performance): 0 skips CleanupTick's visibility pass -- per beat it
+  // walks every decal and asks the rotating army's recon whether it sees it, only to publish the
+  // focus army's visible decals to the user side. For runs that draw nothing (headless, training);
+  // expiry (the first pass) still runs.
+  bool sim_DecalVisibility = true;
+  moho::TConVar<bool> gTConVar_sim_DecalVisibility(
+    "sim_DecalVisibility",
+    "Track which armies see each decal and publish the visible ones (off: nothing draws them).",
+    &sim_DecalVisibility
+  );
+} // namespace
 
 namespace
 {
@@ -398,7 +414,7 @@ void CDecalBuffer::CleanupTick()
   CArmyImpl** const armiesEnd = mSim->mArmiesList.end();
   const std::size_t armyCount = armiesBegin ? static_cast<std::size_t>(armiesEnd - armiesBegin) : 0u;
 
-  if (armyCount != 0u) {
+  if (armyCount != 0u && sim_DecalVisibility && !AGENT_TrainingMode()) {
     const std::uint32_t rotatingArmyIndex = curTick % static_cast<std::uint32_t>(armyCount);
     CArmyImpl* const rotatingArmy = armiesBegin[rotatingArmyIndex];
 
