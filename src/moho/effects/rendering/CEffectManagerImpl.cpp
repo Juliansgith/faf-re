@@ -1,4 +1,5 @@
 #include "moho/effects/rendering/CEffectManagerImpl.h"
+#include "moho/agent/AgentBridge.h"
 
 #include <algorithm>
 #include <memory>
@@ -580,7 +581,7 @@ namespace moho
       if (produced.mParticles.empty() && produced.mTrails.empty() && produced.mBeams.empty()) {
         continue;
       }
-      if (!sim_SyncParticles) {
+      if (!sim_SyncParticles || AGENT_TrainingMode()) { // training games draw nothing either
         produced.mParticles.clear();
         produced.mTrails.clear();
         produced.mBeams.clear();

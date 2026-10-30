@@ -16,6 +16,7 @@
 #include "moho/animation/IAniManipulator.h"
 #include "moho/console/CConCommand.h"
 #include "gpg/core/reflection/StaticInitPhase.h"
+#include "moho/agent/AgentBridge.h"
 
 namespace
 {
@@ -859,6 +860,7 @@ namespace moho
   /// sim_SyncPoses (see above): false when no pose handle goes to the user side.
   bool SIM_SyncPoses() noexcept
   {
-    return sim_SyncPoses;
+    // agent training games draw nothing either (AGENT_TrainingMode)
+    return sim_SyncPoses && !AGENT_TrainingMode();
   }
 } // namespace moho
