@@ -294,6 +294,11 @@ int main(int argc, char** argv)
   platform::SetX87PrecisionControl(_PC_24);
 
   // `InitializeSessionFromCommandLine`, up to the `/replay` path.
+  // Engine addition (faf-neural-ai, performance): headless draws nothing, so no pose handles go to
+  // the user side (sim_SyncPoses) -- --bone-stats reads them; /con can turn it back on.
+  if (options.boneStatsPath.empty()) {
+    moho::CON_Execute("sim_SyncPoses 0");
+  }
   RunStartupConsoleCommands();
   moho::PlaceCurrentThread(moho::EThreadRole::Main);
 

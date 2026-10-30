@@ -1083,7 +1083,8 @@ void CAiReconDBImpl::RefreshBlip(ReconBlip* const blip, Unit* const sourceUnit)
 
     // 0x005C1C2F: an animated source unit reseats both pose lanes from its
     // actor; one without an actor drops them instead (0x005C1C95/0x005C1CA0).
-    if (const CAniActor* const actor = sourceUnit->AniActor; actor != nullptr) {
+    // sim_SyncPoses 0: no pose handles on blips (only the user side draws them).
+    if (const CAniActor* const actor = SIM_SyncPoses() ? sourceUnit->AniActor : nullptr; actor != nullptr) {
       if (assignFromFields) {
         perArmy->mPriorPose = actor->mPriorPose;
         perArmy->mPose = actor->mPose;
@@ -1122,7 +1123,7 @@ namespace
     if (!SameHandle(perArmy.mMesh, sourceUnit.mVarDat.mScmResource)) {
       return true;
     }
-    if (const CAniActor* const actor = sourceUnit.AniActor; actor != nullptr) {
+    if (const CAniActor* const actor = SIM_SyncPoses() ? sourceUnit.AniActor : nullptr; actor != nullptr) {
       return !SameHandle(perArmy.mPriorPose, actor->mPriorPose) || !SameHandle(perArmy.mPose, actor->mPose);
     }
     // `reset()` changes a handle only when it is not already empty.
@@ -1163,7 +1164,7 @@ namespace
     ExchangeHandle(perArmy.mMesh, sourceUnit.mVarDat.mScmResource, released.mMesh, false);
 
     const boost::shared_ptr<CAniPose> noPose;
-    const CAniActor* const actor = sourceUnit.AniActor;
+    const CAniActor* const actor = SIM_SyncPoses() ? sourceUnit.AniActor : nullptr;
     const boost::shared_ptr<CAniPose>& priorPose = actor != nullptr ? actor->mPriorPose : noPose;
     const boost::shared_ptr<CAniPose>& pose = actor != nullptr ? actor->mPose : noPose;
     const auto sourceHolds = [&](const boost::shared_ptr<CAniPose>& handle) {

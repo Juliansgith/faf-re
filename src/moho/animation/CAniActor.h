@@ -20,6 +20,10 @@ namespace LuaPlus
 
 namespace moho
 {
+  /// `sim_SyncPoses` (CAniActor.cpp): false when no animation pose handle is published to the
+  /// user side (unit sync blocks, recon blips) -- runs that draw nothing.
+  [[nodiscard]] bool SIM_SyncPoses() noexcept;
+
   class CAniPose;
   class CAniSkel;
   class IAniManipulator;

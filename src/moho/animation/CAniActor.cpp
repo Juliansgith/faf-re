@@ -26,6 +26,19 @@ namespace
     &sim_RecyclePose
   );
 
+  // Engine addition (faf-neural-ai, performance): sim_SyncPoses 0 publishes no pose handles to
+  // the user side (unit sync blocks and recon blips). Only the user side reads them (interpolated
+  // drawing; save games keep them too), and every handle a sync packet or blip holds keeps the
+  // actor's pose shared, so sim_RecyclePose never fires and every animated unit allocates and
+  // copies a fresh CAniPose every beat. For runs that draw nothing (headless, /agentheadless
+  // training games); the sim computes the same beats either way.
+  bool sim_SyncPoses = true;
+  moho::TConVar<bool> gTConVar_sim_SyncPoses(
+    "sim_SyncPoses",
+    "Publish animation poses to the user side (off: nothing draws them; lets sim_RecyclePose reuse them).",
+    &sim_SyncPoses
+  );
+
   constexpr std::uint32_t kWatchBoneEnabledFlag = 0x8000u;
 
   // Address: 0x00BD2B60 (FUN_00BD2B60, register_CAniActorSerializer) -- MSVC's
@@ -840,3 +853,12 @@ namespace
   // Address: 0x010B284C -- process-global `CAniActorConstruct` singleton.
   moho::CAniActorConstruct gCAniActorConstruct;
 } // namespace
+
+namespace moho
+{
+  /// sim_SyncPoses (see above): false when no pose handle goes to the user side.
+  bool SIM_SyncPoses() noexcept
+  {
+    return sim_SyncPoses;
+  }
+} // namespace moho

@@ -96,8 +96,24 @@ namespace moho
     /// the destroyed list (through DestroyEffect on itself).
     [[nodiscard]] bool TicksOnWorkers(IEffect* const effect)
     {
+      // Engine change (faf-neural-ai, performance): `typeid(*effect)` is an RTTI walk plus, on MSVC's
+      // ABI, a decorated-name strcmp per comparison -- 4 % of the sim thread in a 12-player late game,
+      // for every active effect every beat. The answer depends only on the dynamic class, so the
+      // classes' vtable pointers (one per class in this module) are learned once and compared first.
+      // Called on the sim thread only (TickParallel builds the snapshot before the workers run).
+      static const void* sWorkerVtables[3] = {nullptr, nullptr, nullptr};
+      const void* const vtable = *reinterpret_cast<const void* const*>(effect);
+      if (vtable == sWorkerVtables[0] || vtable == sWorkerVtables[1] || vtable == sWorkerVtables[2]) {
+        return vtable != nullptr;
+      }
       const std::type_info& type = typeid(*effect);
-      return type == typeid(CEfxEmitter) || type == typeid(CEfxTrailEmitter) || type == typeid(CEfxBeam);
+      const int slot = type == typeid(CEfxEmitter) ? 0 : type == typeid(CEfxTrailEmitter) ? 1
+                       : type == typeid(CEfxBeam)  ? 2 : -1;
+      if (slot < 0) {
+        return false;
+      }
+      sWorkerVtables[slot] = vtable;
+      return true;
     }
 
     /// Appends `source` to `target` one push_back at a time, as the serial walk does, and empties it.

@@ -16957,6 +16957,16 @@ void Unit::RefreshSyncBlock(
   if (releasedPose != nullptr) {
     releasedPose->swap(VarDat().mSharedPose);
   }
+  // sim_SyncPoses 0 (engine addition, performance): no pose handle in the sync block, so the actor's
+  // pose stays unique and sim_RecyclePose reuses it instead of a fresh CAniPose per beat.
+  if (!SIM_SyncPoses()) {
+    if (releasedPriorPose != nullptr) {
+      releasedPriorPose->swap(VarDat().mPriorSharedPose);
+    }
+    VarDat().mSharedPose.reset();
+    VarDat().mPriorSharedPose.reset();
+    return;
+  }
   VarDat().mSharedPose = AniActor->GetPoseShared();
   if (releasedPriorPose != nullptr) {
     releasedPriorPose->swap(VarDat().mPriorSharedPose);
