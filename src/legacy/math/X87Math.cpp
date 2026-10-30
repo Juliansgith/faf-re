@@ -5,6 +5,9 @@
 #include <cmath>
 #include <xmmintrin.h>
 
+// FAF_ULTRA_FP builds take legacy/math/X87MathUltra.cpp (plain float/double, inlinable) instead.
+#if !defined(FAF_ULTRA_FP)
+
 // Moved here unchanged from moho/math/MathReflection.cpp (dedicated-server plan
 // WPL.23): the lane state belongs with the helpers that read it, and the
 // simulation's math tests link this file without the reflection code.
@@ -969,3 +972,5 @@ namespace msvc8
 #endif
   }
 } // namespace msvc8
+
+#endif // !FAF_ULTRA_FP

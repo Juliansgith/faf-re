@@ -41,6 +41,15 @@
  *     GPG_PREREGISTER_INIT(SFootprintTypeInfo, register_SFootprintTypeInfo)
  */
 
+// Engine addition (faf-neural-ai, FAF_ULTRA): nothing references a table entry, so (Thin)LTO
+// internalises and drops it unless it is marked used -- then no provider runs and the first
+// consumer's LookupRType throws during static initialization.
+#if defined(__clang__)
+#define GPG_STATIC_INIT_USED __attribute__((used))
+#else
+#define GPG_STATIC_INIT_USED
+#endif
+
 #if defined(_WIN32)
 #define GPG_PREREGISTER_INIT(TAG, FN)                                              \
   static void __cdecl gGpgPreRegisterThunk_##TAG()                                 \
@@ -48,7 +57,7 @@
     (void)FN();                                                                    \
   }                                                                                \
   __pragma(section(".CRT$XCL", read))                                              \
-  extern "C" __declspec(allocate(".CRT$XCL")) void(__cdecl* const                  \
+  extern "C" __declspec(allocate(".CRT$XCL")) GPG_STATIC_INIT_USED void(__cdecl* const \
                                                    gGpgPreRegisterInit_##TAG)() =  \
     &gGpgPreRegisterThunk_##TAG;
 #else

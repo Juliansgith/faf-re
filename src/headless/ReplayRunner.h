@@ -31,6 +31,8 @@ namespace faf::headless
     int checksumPeriod = 0;     // when > 0: `sim_ChecksumPeriod` for this run (0 = the default)
     int replayLead = -1;        // when >= 0: `sim_ReplayLead` for this run
     int timeoutMinutes = 180;   // wall-clock limit for the whole run
+    int maxBeats = 0;           // when > 0: stop cleanly after this many beats (benchmarks)
+    int progressEvery = 0;      // when > 0: print "PROGRESS beat= t=" every this many beats
   };
 
   struct SReplayResult
@@ -39,6 +41,7 @@ namespace faf::headless
     bool gameOver = false;      // a packet carried `mGameOver` (victory or end of the replay)
     bool gameEnded = false;     // the sim's Lua `Sync` table carried `GameEnded`
     bool timedOut = false;
+    bool stoppedAtMaxBeats = false; // `--max-beats` reached
     bool crashed = false;
     int beats = 0;              // packets taken off the queue
     int lastBeat = -1;

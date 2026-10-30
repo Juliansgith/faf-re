@@ -7703,8 +7703,15 @@ extern "C" int __cdecl register_sseCompatMode()
   return 0;
 }
 
+#ifndef GPG_STATIC_INIT_USED // as in gpg/core/reflection/StaticInitPhase.h: keep CRT table entries under LTO
+#if defined(__clang__)
+#define GPG_STATIC_INIT_USED __attribute__((used))
+#else
+#define GPG_STATIC_INIT_USED
+#endif
+#endif
 __pragma(section(".CRT$XIU", read))
-extern "C" __declspec(allocate(".CRT$XIU"))
+extern "C" __declspec(allocate(".CRT$XIU")) GPG_STATIC_INIT_USED
 int(__cdecl* const gRegisterSseCompatModeInit)() = &register_sseCompatMode;
 
 /**
@@ -7722,7 +7729,7 @@ extern "C" int __cdecl register_compatFlag()
 }
 
 __pragma(section(".CRT$XIU", read))
-extern "C" __declspec(allocate(".CRT$XIU"))
+extern "C" __declspec(allocate(".CRT$XIU")) GPG_STATIC_INIT_USED
 int(__cdecl* const gRegisterCompatFlagInit)() = &register_compatFlag;
 
 /**

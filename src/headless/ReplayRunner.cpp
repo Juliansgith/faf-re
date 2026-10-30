@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <unordered_set>
 #include <type_traits>
 #include <memory>
 
@@ -563,13 +564,14 @@ namespace faf::headless
 
     LuaPlus::LuaState* const syncState = ReplayLuaState();
     std::map<std::string, SSyncKeySeen> syncKeys;
+    std::unordered_set<std::int32_t> liveUnits; // `--progress`: units created minus deleted, from the packets
     const Clock::time_point playStart = Clock::now();
     const double timeLimit = 60.0 * options.timeoutMinutes;
     double lastReport = 0.0;
     bool ready = false;
     const HANDLE syncAvailable = driver->GetSyncDataAvailableEvent();
 
-    while (!result.gameOver) {
+    while (!result.gameOver && !result.stoppedAtMaxBeats) {
       const double elapsed = SecondsSince(playStart);
       if (elapsed > timeLimit) {
         result.timedOut = true;
@@ -596,7 +598,7 @@ namespace faf::headless
         continue;
       }
 
-      while (driver->HasSyncData()) {
+      while (driver->HasSyncData() && !result.stoppedAtMaxBeats) {
         moho::SSyncData* rawPacket = nullptr;
         driver->GetSyncData(rawPacket);
         std::unique_ptr<moho::SSyncData> packet(rawPacket);
@@ -648,6 +650,27 @@ namespace faf::headless
         }
         if (packet->mGameOver) {
           result.gameOver = true;
+        }
+        // `--progress n` / `--max-beats n` (benchmarks): wall time every n beats, and a clean stop
+        if (options.progressEvery > 0) {
+          for (const auto& created : packet->mNewUnits) {
+            liveUnits.insert(static_cast<std::int32_t>(created.mEntityId));
+          }
+          for (const auto id : packet->mDeleteIds) {
+            liveUnits.erase(static_cast<std::int32_t>(id));
+          }
+          for (const auto id : packet->mEraseIds) {
+            liveUnits.erase(static_cast<std::int32_t>(id));
+          }
+        }
+        if (options.progressEvery > 0 && result.beats % options.progressEvery == 0) {
+          std::printf(
+            "[%s] PROGRESS beat=%d t=%.3f units=%zu\n", label, packet->mCurBeat, SecondsSince(playStart), liveUnits.size()
+          );
+          std::fflush(stdout);
+        }
+        if (options.maxBeats > 0 && result.beats >= options.maxBeats) {
+          result.stoppedAtMaxBeats = true;
         }
 #if FAF_SERVER_MODE
         if (loopback) {

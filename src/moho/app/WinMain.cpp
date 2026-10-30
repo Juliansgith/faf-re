@@ -81,8 +81,15 @@ namespace
 #else // x64 C names carry no leading underscore
 #pragma comment(linker, "/INCLUDE:gQueryStartupInfoBeforeInitializers")
 #endif
+#ifndef GPG_STATIC_INIT_USED // as in gpg/core/reflection/StaticInitPhase.h: keep CRT table entries under LTO
+#if defined(__clang__)
+#define GPG_STATIC_INIT_USED __attribute__((used))
+#else
+#define GPG_STATIC_INIT_USED
+#endif
+#endif
 #pragma section(".CRT$XIB", read)
-extern "C" __declspec(allocate(".CRT$XIB")) int(__cdecl* const gQueryStartupInfoBeforeInitializers)() =
+extern "C" __declspec(allocate(".CRT$XIB")) GPG_STATIC_INIT_USED int(__cdecl* const gQueryStartupInfoBeforeInitializers)() =
   &QueryStartupInfoBeforeInitializers;
 
 namespace

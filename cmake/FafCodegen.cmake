@@ -63,10 +63,78 @@ if(FAF_LINUX)
       message(FATAL_ERROR "${_flags} contains a flag that changes floating-point results: ${${_flags}}")
     endif()
   endforeach()
+  # FAF_ULTRA / FAF_ULTRA_FP (see below) for the Linux build too (benchmarks on the server)
+  option(FAF_ULTRA "Maximum-speed codegen (-O3, x86-64-v3, ThinLTO); results stay retail's" OFF)
+  option(FAF_ULTRA_FP "With FAF_ULTRA: relaxed floating point (results differ from retail)" OFF)
+  set(_faf_linux_fp "-ffp-model=precise;-ffp-contract=off;-fno-math-errno;${_faf_no_builtin}")
+  set(_faf_linux_perf "")
+  if(FAF_ULTRA)
+    set(_faf_linux_perf "-O3;-march=x86-64-v3;-mtune=znver3;-flto=thin")
+    target_link_options(faf_codegen INTERFACE -flto=thin -fuse-ld=lld -Wl,--thinlto-jobs=all)
+    target_compile_definitions(faf_codegen INTERFACE FAF_ULTRA=1)
+    if(FAF_ULTRA_FP)
+      set(_faf_linux_fp "-ffp-contract=fast;-fno-math-errno;-fno-trapping-math;-fno-signed-zeros;-freciprocal-math;-fassociative-math")
+      target_compile_definitions(faf_codegen INTERFACE FAF_ULTRA_FP=1)
+    endif()
+  endif()
   target_compile_options(faf_codegen INTERFACE
-    "$<$<COMPILE_LANGUAGE:C,CXX>:-ffp-model=precise;-ffp-contract=off;-fno-math-errno;${_faf_no_builtin};-fno-strict-aliasing;-fwrapv;-fno-delete-null-pointer-checks;-fno-strict-float-cast-overflow;-fno-finite-loops;-fsigned-char;-ffunction-sections;-fdata-sections;-Wno-overriding-option>"
+    "$<$<COMPILE_LANGUAGE:C,CXX>:${_faf_linux_fp};-fno-strict-aliasing;-fwrapv;-fno-delete-null-pointer-checks;-fno-strict-float-cast-overflow;-fno-finite-loops;-fsigned-char;-ffunction-sections;-fdata-sections;-Wno-overriding-option;${_faf_linux_perf}>"
     $<$<COMPILE_LANGUAGE:CXX>:-fno-strict-return>)
   target_link_options(faf_codegen INTERFACE -Wl,--gc-sections)
+  return()
+endif()
+
+# Engine addition (faf-neural-ai, 2026-10-30): two speed switches, Windows clang-cl only.
+#  - FAF_ULTRA: codegen only, results stay retail's: /O2 -> -O3, x86-64-v3 (AVX2/BMI2; Zen 2+ / Haswell+;
+#    FMA instructions exist but -ffp-contract=off still forbids contracting a*b+c into one), tuned for Zen 3,
+#    ThinLTO (FAF_ULTRA_LTO) and PGO (FAF_ULTRA_PGO_GEN / FAF_ULTRA_PGO_USE). Every exactness rule below stays,
+#    so a replay keeps matching every checksum (the benchmark can play the real battle).
+#  - FAF_ULTRA_FP (with FAF_ULTRA): trades retail exactness for speed: FMA contraction, reassociation,
+#    reciprocals, libm builtins, and legacy/math/X87MathUltra.cpp instead of the x87 emulation. Results
+#    differ from the 2007 engine (replays desync). The flags that protect the decompiled code from undefined
+#    behaviour stay (no strict aliasing, wrapping overflow, null checks, cvttss2si-like casts, strict return).
+option(FAF_ULTRA "Maximum-speed codegen (-O3, x86-64-v3, ThinLTO, PGO); results stay retail's" OFF)
+option(FAF_ULTRA_FP "With FAF_ULTRA: relaxed floating point (results differ from retail)" OFF)
+option(FAF_ULTRA_LTO "With FAF_ULTRA: ThinLTO" ON)
+set(FAF_ULTRA_PGO_USE "" CACHE FILEPATH "With FAF_ULTRA: a merged .profdata to optimise with (PGO)")
+option(FAF_ULTRA_PGO_GEN "With FAF_ULTRA: an instrumented build that writes a .profraw" OFF)
+set(_faf_ultra_perf "")
+if(FAF_ULTRA AND NOT FAF_LINUX)
+  set(_faf_ultra_perf /clang:-O3 /clang:-march=x86-64-v3 /clang:-mtune=znver3 /Gw -Wno-unused-command-line-argument)
+  if(FAF_ULTRA_LTO)
+    list(APPEND _faf_ultra_perf /clang:-flto=thin)
+    target_link_options(faf_codegen INTERFACE /opt:lldltojobs=all /opt:lldlto=3 /OPT:REF /OPT:ICF)
+  endif()
+  if(FAF_ULTRA_PGO_GEN)
+    list(APPEND _faf_ultra_perf /clang:-fprofile-instr-generate)
+    file(GLOB _faf_profile_rt "${FAF_LLVM_ROOT}/lib/clang/*/lib/windows/clang_rt.profile-x86_64.lib")
+    target_link_options(faf_codegen INTERFACE ${_faf_profile_rt})
+  elseif(FAF_ULTRA_PGO_USE)
+    list(APPEND _faf_ultra_perf "/clang:-fprofile-instr-use=${FAF_ULTRA_PGO_USE}" -Wno-profile-instr-unprofiled
+         -Wno-profile-instr-out-of-date -Wno-backend-plugin)
+  endif()
+  target_compile_definitions(faf_codegen INTERFACE FAF_ULTRA=1)
+  message(STATUS "FAF_ULTRA: -O3 x86-64-v3 LTO=${FAF_ULTRA_LTO} PGO gen=${FAF_ULTRA_PGO_GEN} use=${FAF_ULTRA_PGO_USE} FP=${FAF_ULTRA_FP}")
+endif()
+if(FAF_ULTRA AND FAF_ULTRA_FP AND NOT FAF_LINUX)
+  set(_faf_ultra_fp_options
+    /clang:-ffp-contract=fast
+    /clang:-fno-math-errno
+    /clang:-fno-trapping-math
+    /clang:-fno-signed-zeros
+    /clang:-freciprocal-math
+    /clang:-fassociative-math
+    /clang:-fno-strict-aliasing
+    /clang:-fwrapv
+    /clang:-fno-delete-null-pointer-checks
+    /clang:-fno-strict-float-cast-overflow
+    /clang:-fno-finite-loops
+    /Gy
+    -Wno-overriding-option)
+  target_compile_options(faf_codegen INTERFACE
+    "$<$<COMPILE_LANGUAGE:C,CXX>:${_faf_ultra_fp_options};${_faf_ultra_perf}>"
+    $<$<COMPILE_LANGUAGE:CXX>:/clang:-fno-strict-return>)
+  target_compile_definitions(faf_codegen INTERFACE FAF_ULTRA_FP=1 $<$<CONFIG:Debug>:_ITERATOR_DEBUG_LEVEL=0>)
   return()
 endif()
 
@@ -99,7 +167,7 @@ endif()
 # C and C++ only: the x64 MASM file goes through llvm-ml, which takes none of
 # these.
 target_compile_options(faf_codegen INTERFACE
-  "$<$<COMPILE_LANGUAGE:C,CXX>:${_faf_codegen_options}>"
+  "$<$<COMPILE_LANGUAGE:C,CXX>:${_faf_codegen_options};${_faf_ultra_perf}>"
   $<$<COMPILE_LANGUAGE:CXX>:/clang:-fno-strict-return>)
 
 # Checked iterators off in Debug as well, for every library: the setting changes

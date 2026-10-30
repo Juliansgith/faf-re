@@ -159,6 +159,8 @@ namespace
       "  --checksum-period <n>     sim_ChecksumPeriod for this run (default: the game's, 50)\n"
       "  --lead <n>                beats the sim may run ahead (sim_ReplayLead, default 10)\n"
       "  --timeout <minutes>       give up after this long (default 180)\n"
+      "  --max-beats <n>           stop cleanly after this many beats (benchmarks)\n"
+      "  --progress <n>            print 'PROGRESS beat= t=' every n beats (benchmarks)\n"
       "  --label <text>            prefix for every printed line\n"
       "  engine flags as in the game: /log <file>, /synclog <dir>, /simworkers <n>,\n"
       "  /con <name=value;...>, /prefs <file>, /sse2, /noversioncheck\n"
@@ -231,6 +233,8 @@ int main(int argc, char** argv)
   (void)ReadIntOption("--checksum-period", options.checksumPeriod, bad);
   (void)ReadIntOption("--lead", options.replayLead, bad);
   (void)ReadIntOption("--timeout", options.timeoutMinutes, bad);
+  (void)ReadIntOption("--max-beats", options.maxBeats, bad);
+  (void)ReadIntOption("--progress", options.progressEvery, bad);
   if (bad) {
     PrintUsage();
     return kExitBadInput;
