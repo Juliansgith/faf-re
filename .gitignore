@@ -3,6 +3,7 @@ __pycache__/
 .vscode/*
 !.vscode/settings.json
 !.vscode/c_cpp_properties.json
+!.vscode/extensions.json
 
 # Temporary files of scripts
 scripts/**/*.txt
@@ -16,15 +17,19 @@ bin/
 # Local-only recovery workspace, including decomp/recovery/reports/; never force-add.
 decomp/
 buildstage/
+# CMake binary directories (CMakePresets.json).
+/build/
 dumps/
 out/
 output/
-dependencies/zlib-1.2.3/**/*
 dependencies/LuaPlus_Build1081/**/*
 dependencies/boost_1_34_1/**/*
 dependencies/wxWindows-2.4.2/**/*
-dependencies/WildMagic3p8/**/*
+# Renderer toolchains fetched locally (docs/RENDERER_BACKENDS.md).
+dependencies/dxc/
+dependencies/slang/
 dependencies/*.7z
+*.7z
 *.pdb
 *.log
 *.obj
@@ -65,5 +70,10 @@ RECOVERY_STATUS.md
 # Resolve-Deps.ps1 download cache for the upstream dependency archives.
 .depcache/
 
-# Local FFmpeg headers, import libraries and DLLs; see docs/FAF_SFD_COMPATIBILITY.md.
-dependencies/ffmpeg/
+dependencies/.downloads/
+dependencies/dxsdk/
+
+tools/tracy/
+
+# Built tools (go build in tools/, e.g. fakegame.exe); no exe is tracked.
+*.exe

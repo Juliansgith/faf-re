@@ -1,14 +1,11 @@
-diff --git a/Foundation/Math/Wm3AxisAlignedBox3.h b/Foundation/Math/Wm3AxisAlignedBox3.h
+diff -ruN a/Foundation/Math/Wm3AxisAlignedBox3.h b/Foundation/Math/Wm3AxisAlignedBox3.h
 --- a/Foundation/Math/Wm3AxisAlignedBox3.h
 +++ b/Foundation/Math/Wm3AxisAlignedBox3.h
-@@ -13,6 +13,15 @@
+@@ -13,6 +13,12 @@
  
  #include "Wm3FoundationLIB.h"
  #include "Wm3System.h"
-+// FAF MOD: needed for the Vector3<Real>-typed Min/Max members below.
 +#include "Wm3Vector3.h"
-+
-+// FAF MOD: forward decls for the FAF reflection serialize hooks added below.
 +namespace gpg
 +{
 +    class ReadArchive;
@@ -17,63 +14,46 @@ diff --git a/Foundation/Math/Wm3AxisAlignedBox3.h b/Foundation/Math/Wm3AxisAlign
  
  namespace Wm3
  {
-@@ -29,6 +38,11 @@ public:
+@@ -28,6 +34,8 @@
+     // class will not check for validity of the input.
      AxisAlignedBox3 (Real fXMin, Real fXMax, Real fYMin, Real fYMax,
          Real fZMin, Real fZMax);
- 
-+    // FAF MOD: brace-init-friendly two-vector constructor for the FAF SDK
-+    // helpers that build empty/invalid sentinels via `{min_vec, max_vec}`.
 +    AxisAlignedBox3 (const Vector3<Real>& rkMin, const Vector3<Real>& rkMax)
 +        : Min(rkMin), Max(rkMax) {}
-+
+ 
      // Overlap testing is in the strict sense.  If the two boxes are just
      // touching along a common edge, the boxes are reported as overlapping.
-     bool HasXOverlap (const AxisAlignedBox3& rkBox) const;
-@@ -42,8 +56,19 @@ public:
+@@ -42,7 +50,10 @@
      bool FindIntersection (const AxisAlignedBox3& rkBox,
          AxisAlignedBox3& rkIntr) const;
  
--    Real Min[3];
--    Real Max[3];
-+    // FAF MOD: store Min/Max as Vector3<Real> instead of Real[3]. Same
-+    // memory layout (Vector3<Real> wraps Real[3] via the union added in
-+    // Wm3Vector3.h), so all the inl methods that do `Min[0]`/`Min[1]` etc.
-+    // continue to work via Vector3<Real>::operator[]. But now the FAF SDK
-+    // consumers can also write `bounds.Min.x` (the field-style access they
-+    // were originally written against).
+-    Real Min[3], Max[3];
 +    Vector3<Real> Min;
 +    Vector3<Real> Max;
-+
-+    // FAF MOD: serialize hooks used by the FAF reflection system. The float
-+    // specializations are defined in src/sdk/moho/math/MathReflection.cpp.
 +    void MemberDeserialize (gpg::ReadArchive* archive);
 +    void MemberSerialize (gpg::WriteArchive* archive) const;
  };
  
  #include "Wm3AxisAlignedBox3.inl"
-diff --git a/Foundation/Math/Wm3Box3.h b/Foundation/Math/Wm3Box3.h
+diff -ruN a/Foundation/Math/Wm3Box3.h b/Foundation/Math/Wm3Box3.h
 --- a/Foundation/Math/Wm3Box3.h
 +++ b/Foundation/Math/Wm3Box3.h
-@@ -14,6 +14,13 @@
+@@ -13,6 +13,11 @@
+ 
  #include "Wm3FoundationLIB.h"
  #include "Wm3Vector3.h"
- 
-+// FAF MOD: forward decls for the FAF reflection serialize hooks added below.
 +namespace gpg
 +{
 +    class ReadArchive;
 +    class WriteArchive;
 +}
-+
+ 
  namespace Wm3
  {
- 
-@@ -34,11 +41,65 @@ public:
+@@ -33,12 +38,49 @@
+     Box3 (const Vector3<Real>& rkCenter, const Vector3<Real>& rkAxis0,
          const Vector3<Real>& rkAxis1, const Vector3<Real>& rkAxis2,
          Real fExtent0, Real fExtent1, Real fExtent2);
- 
-+    // FAF MOD: 5-arg ctor that takes the three extents packed into a single
-+    // Vector3<Real>, matching the FAF SDK's hand-recovered constructor.
 +    Box3 (const Vector3<Real>& rkCenter,
 +          const Vector3<Real>& rkAxis0,
 +          const Vector3<Real>& rkAxis1,
@@ -88,15 +68,9 @@ diff --git a/Foundation/Math/Wm3Box3.h b/Foundation/Math/Wm3Box3.h
 +        Extent[1] = rkExtent.y;
 +        Extent[2] = rkExtent.z;
 +    }
-+
-     void ComputeVertices (Vector3<Real> akVertex[8]) const;
  
-+    // FAF MOD: alias for the FAF SDK's hand-recovered name. Same body as
-+    // ComputeVertices, just exposes the local API surface.
+     void ComputeVertices (Vector3<Real> akVertex[8]) const;
 +    void GetCorners (Vector3<Real> akVertex[8]) const { ComputeVertices(akVertex); }
-+
-+    // FAF MOD: ComputeAABB — derive a world-space AABB from this OBB. Used
-+    // by EntityCollisionUpdater::GetBoundingBox.
 +    void ComputeAABB (Vector3<Real>& outMin, Vector3<Real>& outMax) const
 +    {
 +        const Vector3<Real> r(
@@ -106,10 +80,6 @@ diff --git a/Foundation/Math/Wm3Box3.h b/Foundation/Math/Wm3Box3.h
 +        outMin = Vector3<Real>(Center.x - r.x, Center.y - r.y, Center.z - r.z);
 +        outMax = Vector3<Real>(Center.x + r.x, Center.y + r.y, Center.z + r.z);
 +    }
-+
-+    // FAF MOD: Point-in-OBB containment test from the FAF SDK's
-+    // hand-recovered Box3.h. Matches the FA routine semantics — projects
-+    // the point onto each box axis and checks |projection| <= half-extent.
 +    bool ContainsPoint (const Vector3<Real>& point) const
 +    {
 +        const Vector3<Real> delta(point.x - Center.x, point.y - Center.y, point.z - Center.z);
@@ -121,29 +91,19 @@ diff --git a/Foundation/Math/Wm3Box3.h b/Foundation/Math/Wm3Box3.h
 +        }
 +        return true;
 +    }
-+
+ 
      Vector3<Real> Center;
      Vector3<Real> Axis[3];  // must be an orthonormal set of vectors
      Real Extent[3];         // must be nonnegative
-+
-+    // FAF MOD: serialize hooks used by the FAF reflection system. The float
-+    // specializations are defined in
-+    // src/sdk/moho/collision/CColPrimitiveBox3f.cpp.
 +    void MemberDeserialize (gpg::ReadArchive* archive);
 +    void MemberSerialize (gpg::WriteArchive* archive) const;
  };
  
  #include "Wm3Box3.inl"
-diff --git a/Foundation/Math/Wm3IVector2.h b/Foundation/Math/Wm3IVector2.h
-new file mode 100644
+diff -ruN a/Foundation/Math/Wm3IVector2.h b/Foundation/Math/Wm3IVector2.h
 --- /dev/null
 +++ b/Foundation/Math/Wm3IVector2.h
-@@ -0,0 +1,85 @@
-+// FAF MOD: GPG's integer 2-vector. Not part of upstream Wild Magic 3.8; the
-+// FA binary's RTTI names it `Wm3::IVector2<int>` (the key of
-+// CAiBrain::mBuildStructureMap, gpg::SerSaveLoadHelper<Wm3::IVector2<int>>,
-+// the return type of RD3DTextureResource::SheetGetOriginalTextureDimensions).
-+// There is no `Wm3::Vector2<int>` anywhere in the binary.
+@@ -0,0 +1,75 @@
 +
 +#ifndef WM3IVECTOR2_H
 +#define WM3IVECTOR2_H
@@ -183,9 +143,6 @@ new file mode 100644
 +        return !(*this == rkV);
 +    }
 +
-+    // Lexicographic, component by component, signed. The build-structure
-+    // map's lower-bound walk (0x005808D0) inlines it as a two-iteration
-+    // `jl`/`jg` loop.
 +    bool operator< (const IVector2& rkV) const
 +    {
 +        for (int i = 0; i < 2; ++i)
@@ -202,8 +159,6 @@ new file mode 100644
 +        return false;
 +    }
 +
-+    // Serialize hooks used by the FAF reflection system. The int
-+    // specializations are defined in src/sdk/moho/math/MathReflection.cpp.
 +    void MemberDeserialize (gpg::ReadArchive* archive);
 +    void MemberSerialize (gpg::WriteArchive* archive) const;
 +
@@ -224,15 +179,10 @@ new file mode 100644
 +}
 +
 +#endif
-diff --git a/Foundation/Math/Wm3IVector3.h b/Foundation/Math/Wm3IVector3.h
-new file mode 100644
+diff -ruN a/Foundation/Math/Wm3IVector3.h b/Foundation/Math/Wm3IVector3.h
 --- /dev/null
 +++ b/Foundation/Math/Wm3IVector3.h
-@@ -0,0 +1,68 @@
-+// FAF MOD: GPG's integer 3-vector. Not part of upstream Wild Magic 3.8; the
-+// FA binary's RTTI names it `Wm3::IVector3<int>`
-+// (gpg::SerSaveLoadHelper<Wm3::IVector3<int>>). There is no
-+// `Wm3::Vector3<int>` anywhere in the binary.
+@@ -0,0 +1,62 @@
 +
 +#ifndef WM3IVECTOR3_H
 +#define WM3IVECTOR3_H
@@ -274,8 +224,6 @@ new file mode 100644
 +        return !(*this == rkV);
 +    }
 +
-+    // Serialize hooks used by the FAF reflection system. The int
-+    // specializations are defined in src/sdk/moho/math/MathReflection.cpp.
 +    void MemberDeserialize (gpg::ReadArchive* archive);
 +    void MemberSerialize (gpg::WriteArchive* archive) const;
 +
@@ -297,17 +245,14 @@ new file mode 100644
 +}
 +
 +#endif
-diff --git a/Foundation/Math/Wm3Quaternion.h b/Foundation/Math/Wm3Quaternion.h
+diff -ruN a/Foundation/Math/Wm3Quaternion.h b/Foundation/Math/Wm3Quaternion.h
 --- a/Foundation/Math/Wm3Quaternion.h
 +++ b/Foundation/Math/Wm3Quaternion.h
-@@ -13,6 +13,15 @@
+@@ -13,6 +13,12 @@
  
  #include "Wm3FoundationLIB.h"
  #include "Wm3Matrix3.h"
-+// FAF MOD: needed by the static helpers added below.
 +#include <cmath>
-+
-+// FAF MOD: forward decls for the FAF reflection serialize hooks added below.
 +namespace gpg
 +{
 +    class ReadArchive;
@@ -316,30 +261,22 @@ diff --git a/Foundation/Math/Wm3Quaternion.h b/Foundation/Math/Wm3Quaternion.h
  
  namespace Wm3
  {
-@@ -25,8 +34,11 @@ public:
+@@ -25,8 +31,9 @@
      // necessarily a unit length vector in 4D.
  
      // construction
--    Quaternion ();
+-    Quaternion ();  // uninitialized
 -    Quaternion (Real fW, Real fX, Real fY, Real fZ);
-+    // FAF MOD: see Wm3Vector3.h. Default and (Real, Real, Real, Real) ctors
-+    // are now inline constexpr.
 +    constexpr Quaternion () noexcept : m_afTuple{Real(0), Real(0), Real(0), Real(0)} {}
 +    constexpr Quaternion (Real fW, Real fX, Real fY, Real fZ) noexcept
 +        : m_afTuple{fW, fX, fY, fZ} {}
      Quaternion (const Quaternion& rkQ);
  
      // quaternion for the input rotation matrix
-@@ -138,9 +150,174 @@ public:
+@@ -137,6 +144,148 @@
+     // special values
      WM3_ITEM static const Quaternion IDENTITY;  // the identity rotation
      WM3_ITEM static const Quaternion ZERO;
- 
--private:
--    Real m_afTuple[4];
-+    // FAF MOD: see Wm3Vector3.h. Same union trick to expose `w, x, y, z`
-+    // alongside the upstream `m_afTuple[4]` storage. Field order matches
-+    // the upstream constructor and Wm3Quaternion.inl access pattern
-+    // (m_afTuple[0]=w, [1]=x, [2]=y, [3]=z).
 +public:
 +    union
 +    {
@@ -352,8 +289,6 @@ diff --git a/Foundation/Math/Wm3Quaternion.h b/Foundation/Math/Wm3Quaternion.h
 +            Real z;
 +        };
 +    };
-+
-+    // FAF MOD: SDK-side static helpers from the hand-recovered Quaternion API.
 +    static Quaternion Identity () noexcept
 +    {
 +        return Quaternion(Real(1), Real(0), Real(0), Real(0));
@@ -389,10 +324,6 @@ diff --git a/Foundation/Math/Wm3Quaternion.h b/Foundation/Math/Wm3Quaternion.h
 +            a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
 +            a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w);
 +    }
-+    // Note: upstream has an INSTANCE method `FromAxisAngle(axis, angle)`
-+    // that mutates *this. The FAF SDK consumers call the static form,
-+    // so we expose this as `MakeFromAxisAngle` and migrate the few call
-+    // sites to it (or call upstream's instance method).
 +    static Quaternion MakeFromAxisAngle (const Vector3<Real>& axis, Real angle) noexcept
 +    {
 +        const Real half = angle * Real(0.5);
@@ -436,15 +367,6 @@ diff --git a/Foundation/Math/Wm3Quaternion.h b/Foundation/Math/Wm3Quaternion.h
 +        }
 +        return out;
 +    }
-+    // Note: differs from upstream's instance method `Slerp` (which returns
-+    // *this&). This is the FAF SDK static-form returning a fresh Quaternion.
-+    // Note: upstream has an instance `Rotate(const Vector3<Real>&)` already
-+    // (declared in Wm3Quaternion.h, defined in Wm3Quaternion.inl). The FAF
-+    // SDK's hand-recovered Quaternion::Rotate matches that signature, so we
-+    // simply use the upstream one.
-+
-+    // FAF MOD: ToMat3 — fill a raw row-major 3x3 matrix from this quaternion.
-+    // Same shape as the FAF SDK's hand-recovered Quaternion::ToMat3 helper.
 +    void ToMat3 (Real m[3][3]) const
 +    {
 +        const Real xx = x + x, yy = y + y, zz = z + z;
@@ -461,10 +383,8 @@ diff --git a/Foundation/Math/Wm3Quaternion.h b/Foundation/Math/Wm3Quaternion.h
 +        m[2][1] = yz + wx;
 +        m[2][2] = Real(1) - (xx2 + yy2);
 +    }
-+
 +    static Quaternion Slerp (const Quaternion& a, const Quaternion& b, Real t, Real eps = Real(1e-5)) noexcept
 +    {
-+        // Normalize copies
 +        Quaternion q1 = a;
 +        Quaternion q2 = b;
 +        {
@@ -497,28 +417,26 @@ diff --git a/Foundation/Math/Wm3Quaternion.h b/Foundation/Math/Wm3Quaternion.h
 +        }
 +        return out;
 +    }
-+
-+    // FAF MOD: serialize hooks used by the FAF reflection system. The float
-+    // specializations are defined in src/sdk/moho/math/MathReflection.cpp.
 +    void MemberDeserialize (gpg::ReadArchive* archive);
 +    void MemberSerialize (gpg::WriteArchive* archive) const;
  
-+private:
+ private:
      // support for comparisons
-     int CompareArrays (const Quaternion& rkQ) const;
+@@ -145,7 +294,6 @@
+     // support for FromRotationMatrix
+     static int ms_iNext[3];
  
-@@ -155,6 +332,27 @@ Quaternion<Real> operator* (Real fScalar, const Quaternion<Real>& rkQ);
+-    Real m_afTuple[4];
+ };
+ 
+ template <class Real>
+@@ -155,8 +303,23 @@
  
  typedef Quaternion<float> Quaternionf;
  typedef Quaternion<double> Quaterniond;
-+// FAF MOD: short alias used by FAF SDK consumers.
+-
 +template <class Real> using Quat = Quaternion<Real>;
 +typedef Quaternion<float> Quatf;
-+
-+// FAF MOD: free function `Wm3::MultiplyQuaternionVector(dest, vec, quat)`
-+// recovered from the FA binary at FUN_00452D40. Converts the quaternion to
-+// a 3x3 basis and rotates the vector through it, writing into *dest. Used
-+// pervasively by FAF SDK code (~10 sites) as a free function.
 +inline Vector3<float>* MultiplyQuaternionVector (
 +    Vector3<float>* dest,
 +    const Vector3<float>& vec,
@@ -531,26 +449,23 @@ diff --git a/Foundation/Math/Wm3Quaternion.h b/Foundation/Math/Wm3Quaternion.h
 +    dest->y = vec.x * matrix[1][0] + vec.y * matrix[1][1] + vec.z * matrix[1][2];
 +    dest->z = vec.x * matrix[2][0] + vec.y * matrix[2][1] + vec.z * matrix[2][2];
 +    return dest;
-+}
- 
  }
  
-diff --git a/Foundation/Math/Wm3Quaternion.inl b/Foundation/Math/Wm3Quaternion.inl
++}
++
+ #endif
+ 
+diff -ruN a/Foundation/Math/Wm3Quaternion.inl b/Foundation/Math/Wm3Quaternion.inl
 --- a/Foundation/Math/Wm3Quaternion.inl
 +++ b/Foundation/Math/Wm3Quaternion.inl
-@@ -8,25 +8,8 @@
- // and may not be copied or disclosed except in accordance with the terms
+@@ -9,20 +9,6 @@
  // of that agreement.
  
--//----------------------------------------------------------------------------
+ //----------------------------------------------------------------------------
 -template <class Real>
 -Quaternion<Real>::Quaternion ()
 -{
--    // the identity quaternion
--    m_afTuple[0] = (Real)1.0;
--    m_afTuple[1] = (Real)0.0;
--    m_afTuple[2] = (Real)0.0;
--    m_afTuple[3] = (Real)0.0;
+-    // uninitialized for performance in array construction
 -}
 -//----------------------------------------------------------------------------
 -template <class Real>
@@ -561,55 +476,42 @@ diff --git a/Foundation/Math/Wm3Quaternion.inl b/Foundation/Math/Wm3Quaternion.i
 -    m_afTuple[2] = fY;
 -    m_afTuple[3] = fZ;
 -}
-+// FAF MOD: default ctor and (Real, Real, Real, Real) ctor moved into
-+// Wm3Quaternion.h as inline constexpr.
  //----------------------------------------------------------------------------
  template <class Real>
  Quaternion<Real>::Quaternion (const Quaternion& rkQ)
-diff --git a/Foundation/Math/Wm3Sphere3.h b/Foundation/Math/Wm3Sphere3.h
+diff -ruN a/Foundation/Math/Wm3Sphere3.h b/Foundation/Math/Wm3Sphere3.h
 --- a/Foundation/Math/Wm3Sphere3.h
 +++ b/Foundation/Math/Wm3Sphere3.h
-@@ -14,6 +14,14 @@
+@@ -13,6 +13,11 @@
+ 
  #include "Wm3FoundationLIB.h"
  #include "Wm3Vector3.h"
- 
-+// FAF MOD: forward declarations for the FAF reflection-system serialize hooks
-+// added below.
 +namespace gpg
 +{
 +    class ReadArchive;
 +    class WriteArchive;
 +}
-+
+ 
  namespace Wm3
  {
- 
-@@ -33,6 +41,12 @@ public:
+@@ -33,6 +38,8 @@
  
      Vector3<Real> Center;
      Real Radius;
-+
-+    // FAF MOD: serialize hooks used by the FAF reflection system. The
-+    // float specializations are defined in
-+    // src/sdk/moho/collision/CColPrimitiveSphere3f.cpp.
 +    void MemberDeserialize (gpg::ReadArchive* archive);
 +    void MemberSerialize (gpg::WriteArchive* archive) const;
  };
  
  #include "Wm3Sphere3.inl"
-diff --git a/Foundation/Math/Wm3Vector2.h b/Foundation/Math/Wm3Vector2.h
+diff -ruN a/Foundation/Math/Wm3Vector2.h b/Foundation/Math/Wm3Vector2.h
 --- a/Foundation/Math/Wm3Vector2.h
 +++ b/Foundation/Math/Wm3Vector2.h
-@@ -13,6 +13,17 @@
+@@ -13,6 +13,13 @@
  
  #include "Wm3FoundationLIB.h"
  #include "Wm3Math.h"
-+// FAF MOD: needed by the static helpers added below.
 +#include <cmath>
-+// FAF MOD: GPG's integer vector, which is what `Vector2i` names.
 +#include "Wm3IVector2.h"
-+
-+// FAF MOD: forward decls for the FAF reflection serialize hooks added below.
 +namespace gpg
 +{
 +    class ReadArchive;
@@ -618,25 +520,21 @@ diff --git a/Foundation/Math/Wm3Vector2.h b/Foundation/Math/Wm3Vector2.h
  
  namespace Wm3
  {
-@@ -22,8 +33,10 @@ class Vector2
+@@ -22,8 +29,8 @@
  {
  public:
      // construction
--    Vector2 ();
+-    Vector2 ();  // uninitialized
 -    Vector2 (Real fX, Real fY);
-+    // FAF MOD: see Wm3Vector3.h. Default and (Real, Real) ctors are now
-+    // inline constexpr.
 +    constexpr Vector2 () noexcept : m_afTuple{Real(0), Real(0)} {}
 +    constexpr Vector2 (Real fX, Real fY) noexcept : m_afTuple{fX, fY} {}
      Vector2 (const Real* afTuple);
      Vector2 (const Vector2& rkV);
  
-@@ -102,11 +115,49 @@ public:
+@@ -101,12 +108,43 @@
+     WM3_ITEM static const Vector2 ZERO;
      WM3_ITEM static const Vector2 UNIT_X;
      WM3_ITEM static const Vector2 UNIT_Y;
- 
-+    // FAF MOD: see Wm3Vector3.h for the rationale. Same union trick to
-+    // expose `x, y` alongside the upstream `m_afTuple[2]` storage.
 +public:
 +    union
 +    {
@@ -647,8 +545,6 @@ diff --git a/Foundation/Math/Wm3Vector2.h b/Foundation/Math/Wm3Vector2.h
 +            Real y;
 +        };
 +    };
-+
-+    // FAF MOD: SDK-side static helpers from the hand-recovered Vector2 API.
 +    static Vector2 Zero () noexcept { return Vector2(Real(0), Real(0)); }
 +    static Real Dot (const Vector2& a, const Vector2& b) noexcept
 +    {
@@ -669,42 +565,37 @@ diff --git a/Foundation/Math/Wm3Vector2.h b/Foundation/Math/Wm3Vector2.h
 +        const Real inv = Real(1) / std::sqrt(lenSq);
 +        return Vector2(v.x * inv, v.y * inv);
 +    }
-+
-+    // FAF MOD: serialize hooks used by the FAF reflection system. The float
-+    // specializations are defined in src/sdk/moho/math/MathReflection.cpp.
 +    void MemberDeserialize (gpg::ReadArchive* archive);
 +    void MemberSerialize (gpg::WriteArchive* archive) const;
-+
+ 
  private:
      // support for comparisons
      int CompareArrays (const Vector2& rkV) const;
--
+ 
 -    Real m_afTuple[2];
  };
  
  // arithmetic operations
-@@ -121,6 +172,9 @@ std::ostream& operator<< (std::ostream& rkOStr, const Vector2<Real>& rkV);
+@@ -121,6 +159,8 @@
  
  typedef Vector2<float> Vector2f;
  typedef Vector2<double> Vector2d;
-+// FAF MOD: aliases used by FAF SDK consumers.
 +template <class Real> using Vec2 = Vector2<Real>;
 +typedef Vector2<float> Vec2f;
  
  }
  
-diff --git a/Foundation/Math/Wm3Vector2.inl b/Foundation/Math/Wm3Vector2.inl
+diff -ruN a/Foundation/Math/Wm3Vector2.inl b/Foundation/Math/Wm3Vector2.inl
 --- a/Foundation/Math/Wm3Vector2.inl
 +++ b/Foundation/Math/Wm3Vector2.inl
-@@ -8,19 +8,8 @@
- // and may not be copied or disclosed except in accordance with the terms
+@@ -9,18 +9,6 @@
  // of that agreement.
  
--//----------------------------------------------------------------------------
+ //----------------------------------------------------------------------------
 -template <class Real>
 -Vector2<Real>::Vector2 ()
 -{
--    // the vector is uninitialized
+-    // uninitialized for performance in array construction
 -}
 -//----------------------------------------------------------------------------
 -template <class Real>
@@ -713,25 +604,19 @@ diff --git a/Foundation/Math/Wm3Vector2.inl b/Foundation/Math/Wm3Vector2.inl
 -    m_afTuple[0] = fX;
 -    m_afTuple[1] = fY;
 -}
-+// FAF MOD: default ctor and (Real, Real) ctor moved into Wm3Vector2.h as
-+// inline constexpr.
  //----------------------------------------------------------------------------
  template <class Real>
  Vector2<Real>::Vector2 (const Real* afTuple)
-diff --git a/Foundation/Math/Wm3Vector3.h b/Foundation/Math/Wm3Vector3.h
+diff -ruN a/Foundation/Math/Wm3Vector3.h b/Foundation/Math/Wm3Vector3.h
 --- a/Foundation/Math/Wm3Vector3.h
 +++ b/Foundation/Math/Wm3Vector3.h
-@@ -13,6 +13,18 @@
+@@ -13,6 +13,14 @@
  
  #include "Wm3FoundationLIB.h"
  #include "Wm3Math.h"
-+// FAF MOD: needed by the static helpers added below.
 +#include <cmath>
 +#include <limits>
-+// FAF MOD: GPG's integer vector, which is what `Vector3i` names.
 +#include "Wm3IVector3.h"
-+
-+// FAF MOD: forward decls for the FAF reflection serialize hooks added below.
 +namespace gpg
 +{
 +    class ReadArchive;
@@ -740,31 +625,21 @@ diff --git a/Foundation/Math/Wm3Vector3.h b/Foundation/Math/Wm3Vector3.h
  
  namespace Wm3
  {
-@@ -22,8 +34,11 @@ class Vector3
+@@ -22,8 +30,8 @@
  {
  public:
      // construction
--    Vector3 ();
+-    Vector3 ();  // uninitialized
 -    Vector3 (Real fX, Real fY, Real fZ);
-+    // FAF MOD: default ctor and (Real, Real, Real) ctor are now defined inline
-+    // and `constexpr` so consumer code can write `constexpr Wm3::Vec3f v{...};`.
-+    // The rest of the upstream ctors stay defined in Wm3Vector3.inl.
 +    constexpr Vector3 () noexcept : m_afTuple{Real(0), Real(0), Real(0)} {}
 +    constexpr Vector3 (Real fX, Real fY, Real fZ) noexcept : m_afTuple{fX, fY, fZ} {}
      Vector3 (const Real* afTuple);
      Vector3 (const Vector3& rkV);
  
-@@ -106,11 +121,157 @@ public:
+@@ -105,12 +113,139 @@
+     WM3_ITEM static const Vector3 UNIT_X;
      WM3_ITEM static const Vector3 UNIT_Y;
      WM3_ITEM static const Vector3 UNIT_Z;
- 
-+    // FAF MOD: expose the underlying storage as both `m_afTuple[3]` (the
-+    // upstream WildMagic name used by every Wm3Vector3.inl method) and as a
-+    // public `x, y, z` struct (used by the FAF SDK consumer code originally
-+    // written against the local hand-recovered Wm3::Vector3 layout). The
-+    // `m_afTuple[3]` and `struct { x, y, z }` overlay the same memory, so
-+    // sizeof and binary layout are unchanged. The union is `public` so
-+    // both names are addressable from outside the class.
 +public:
 +    union
 +    {
@@ -776,13 +651,6 @@ diff --git a/Foundation/Math/Wm3Vector3.h b/Foundation/Math/Wm3Vector3.h
 +            Real z;
 +        };
 +    };
-+
-+    // FAF MOD: SDK-side static helpers from the hand-recovered Vector3 API.
-+    // These mirror the static-method shape consumers expect
-+    // (Vector3f::Zero(), Vector3f::Add(a,b), etc.). They overload — but do
-+    // not collide with — the upstream instance methods (Length, Dot,
-+    // Normalize, Cross) because the static forms take an extra Vector3
-+    // argument.
 +    static constexpr Vector3 Zero () noexcept { return Vector3(Real(0), Real(0), Real(0)); }
 +    static Vector3 NaN () noexcept
 +    {
@@ -822,12 +690,12 @@ diff --git a/Foundation/Math/Wm3Vector3.h b/Foundation/Math/Wm3Vector3.h
 +    static Real Normalize (Vector3& v, Real eps = Real(1e-6)) noexcept
 +    {
 +        const Real len = Length(v);
-+        if (len > eps) {
-+            const Real inv = Real(1) / len;
-+            v.x *= inv; v.y *= inv; v.z *= inv;
-+        } else {
++        if (!(len > eps)) {
 +            v.x = Real(0); v.y = Real(0); v.z = Real(0);
++            return Real(0);
 +        }
++        const Real inv = Real(1) / len;
++        v.x *= inv; v.y *= inv; v.z *= inv;
 +        return len;
 +    }
 +    static Real Normalize (Vector3* v, Real eps = Real(1e-6)) noexcept
@@ -886,8 +754,6 @@ diff --git a/Foundation/Math/Wm3Vector3.h b/Foundation/Math/Wm3Vector3.h
 +    {
 +        return !IsntNaN(value);
 +    }
-+    // Returns true when the vectors DIFFER beyond `eps`. Matches the FAF
-+    // SDK's hand-recovered semantics (used as a "not equal" test).
 +    static bool Compare (const Vector3* lhs, const Vector3* rhs, Real eps = Real(1e-5)) noexcept
 +    {
 +        if (lhs == nullptr || rhs == nullptr) return lhs != rhs;
@@ -900,39 +766,27 @@ diff --git a/Foundation/Math/Wm3Vector3.h b/Foundation/Math/Wm3Vector3.h
 +    {
 +        Vector3::LimitLengthTo(*this, maxLen, eps);
 +    }
-+
-+    // FAF MOD: serialize hooks used by the FAF reflection system. The float
-+    // specializations are defined in src/sdk/moho/math/MathReflection.cpp.
 +    void MemberDeserialize (gpg::ReadArchive* archive);
 +    void MemberSerialize (gpg::WriteArchive* archive) const;
-+
+ 
  private:
      // support for comparisons
      int CompareArrays (const Vector3& rkV) const;
--
+ 
 -    Real m_afTuple[3];
  };
  
  // arithmetic operations
-@@ -125,6 +286,25 @@ std::ostream& operator<< (std::ostream& rkOStr, const Vector3<Real>& rkV);
+@@ -125,6 +260,16 @@
  
  typedef Vector3<float> Vector3f;
  typedef Vector3<double> Vector3d;
-+// FAF MOD: aliases that the FAF SDK's hand-recovered code originally used.
 +template <class Real> using Vec3 = Vector3<Real>;
 +typedef Vector3<float> Vec3f;
-+
-+// FAF MOD: free function helpers from the FAF SDK's hand-recovered Vector3 API.
-+// Preserved here so consumer code calling them as free functions continues
-+// to compile after `src/sdk/wm3/` is removed.
 +inline bool Vector3fIsntNaN (const Vector3<float>* value) noexcept
 +{
 +    return Vector3<float>::IsntNaN(value);
 +}
-+
-+// `Wm3::SqrtfBinary` was a thin std::sqrt wrapper recovered from the FA
-+// binary at FUN_00452FC0. The FAF SDK's hand-recovered code calls it
-+// pervasively as a free function.
 +inline float SqrtfBinary (float value) noexcept
 +{
 +    return std::sqrt(value);
@@ -940,18 +794,17 @@ diff --git a/Foundation/Math/Wm3Vector3.h b/Foundation/Math/Wm3Vector3.h
  
  }
  
-diff --git a/Foundation/Math/Wm3Vector3.inl b/Foundation/Math/Wm3Vector3.inl
+diff -ruN a/Foundation/Math/Wm3Vector3.inl b/Foundation/Math/Wm3Vector3.inl
 --- a/Foundation/Math/Wm3Vector3.inl
 +++ b/Foundation/Math/Wm3Vector3.inl
-@@ -8,20 +8,8 @@
- // and may not be copied or disclosed except in accordance with the terms
+@@ -9,19 +9,6 @@
  // of that agreement.
  
--//----------------------------------------------------------------------------
+ //----------------------------------------------------------------------------
 -template <class Real>
 -Vector3<Real>::Vector3 ()
 -{
--    // the vector is uninitialized
+-    // uninitialized for performance in array construction
 -}
 -//----------------------------------------------------------------------------
 -template <class Real>
@@ -961,20 +814,35 @@ diff --git a/Foundation/Math/Wm3Vector3.inl b/Foundation/Math/Wm3Vector3.inl
 -    m_afTuple[1] = fY;
 -    m_afTuple[2] = fZ;
 -}
-+// FAF MOD: default ctor and (Real, Real, Real) ctor moved into Wm3Vector3.h
-+// as inline constexpr so consumers can use them in constant expressions.
  //----------------------------------------------------------------------------
  template <class Real>
  Vector3<Real>::Vector3 (const Real* afTuple)
-diff --git a/Renderers/Dx9Renderer/Wm3Dx9Utility.h b/Renderers/Dx9Renderer/Wm3Dx9Utility.h
+diff -ruN a/Foundation/Terrain/Wm3ClodTerrainPage.cpp b/Foundation/Terrain/Wm3ClodTerrainPage.cpp
+--- a/Foundation/Terrain/Wm3ClodTerrainPage.cpp
++++ b/Foundation/Terrain/Wm3ClodTerrainPage.cpp
+@@ -511,10 +511,10 @@
+     unsigned short usIndex[5] =
+     {
+         usOrigin,
+-        usOrigin + usTwoStride,
+-        usOrigin + rkBlock.GetStride()*(m_usSize + 1),
+-        usOrigin + usTwoStrideTimesSize,
+-        usOrigin + usTwoStrideTimesSize + usTwoStride
++        static_cast<unsigned short>(usOrigin + usTwoStride),
++        static_cast<unsigned short>(usOrigin + rkBlock.GetStride()*(m_usSize + 1)),
++        static_cast<unsigned short>(usOrigin + usTwoStrideTimesSize),
++        static_cast<unsigned short>(usOrigin + usTwoStrideTimesSize + usTwoStride)
+     };
+ 
+     if (rkBlock.GetEven())
+diff -ruN a/Renderers/Dx9Renderer/Wm3Dx9Utility.h b/Renderers/Dx9Renderer/Wm3Dx9Utility.h
 --- a/Renderers/Dx9Renderer/Wm3Dx9Utility.h
 +++ b/Renderers/Dx9Renderer/Wm3Dx9Utility.h
-@@ -16,7 +16,8 @@
+@@ -16,7 +16,7 @@
  #include <d3d9.h>
  #include <d3dx9math.h>
  #include <d3dx9tex.h>
 -#include <dxerr9.h>
-+// dxerr9.h was renamed to DxErr.h in the June 2010 DirectX SDK.
 +#include <DxErr.h>
  
  namespace Wm3
