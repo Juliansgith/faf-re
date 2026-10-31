@@ -36,6 +36,29 @@ namespace
     "Track which armies see each decal and publish the visible ones (off: nothing draws them).",
     &sim_DecalVisibility
   );
+
+  // Engine addition (performance): a lower bound on the earliest non-zero start tick among one
+  // buffer's handles, so CleanupTick's expiry walk over every decal runs only on ticks where a handle
+  // can expire. Kept by CreateHandle and recomputed by each walk; a handle destroyed another way leaves
+  // it low, which only costs one walk. `known` false (loaded handles, another buffer) forces a walk.
+  struct SDecalExpiryHint
+  {
+    const CDecalBuffer* mBuffer = nullptr;
+    bool mKnown = false;
+    std::uint32_t mEarliest = 0u; // UINT32_MAX: no handle expires
+  };
+  SDecalExpiryHint sDecalExpiryHint;
+
+  void NoteDecalStartTick(const CDecalBuffer* const buffer, const std::uint32_t startTick) noexcept
+  {
+    if (sDecalExpiryHint.mBuffer != buffer) {
+      sDecalExpiryHint = SDecalExpiryHint{buffer, false, 0u};
+      return;
+    }
+    if (startTick != 0u && startTick < sDecalExpiryHint.mEarliest) {
+      sDecalExpiryHint.mEarliest = startTick;
+    }
+  }
 } // namespace
 
 namespace
@@ -156,6 +179,9 @@ CDecalBuffer::~CDecalBuffer()
   // open-codes that teardown, including freeing the sentinel head, which is
   // the container's destructor here.
   mStartTickBuckets.clear();
+  if (sDecalExpiryHint.mBuffer == this) {
+    sDecalExpiryHint = SDecalExpiryHint{}; // a later buffer at this address starts unknown
+  }
 }
 
 /**
@@ -200,6 +226,7 @@ CDecalHandle* CDecalBuffer::CreateHandle(const SDecalInfo& info)
   if (handle->mInfo.mStartTick != 0u) {
     mStartTickBuckets[handle->mInfo.mStartTick].insert(handle);
   }
+  NoteDecalStartTick(this, handle->mInfo.mStartTick);
 
   CArmyImpl** const armiesBegin = mSim->mArmiesList.begin();
   CArmyImpl** const armiesEnd = mSim->mArmiesList.end();
@@ -272,6 +299,9 @@ void CDecalBuffer::ReadDecalHandles(gpg::ReadArchive* const ar)
 
     if (handle->mInfo.mStartTick != 0u) {
       mStartTickBuckets[handle->mInfo.mStartTick].insert(handle);
+    }
+    if (sDecalExpiryHint.mBuffer == this) {
+      sDecalExpiryHint.mKnown = false; // the next CleanupTick walks and recomputes
     }
   }
 }
@@ -398,16 +428,24 @@ void CDecalBuffer::CleanupTick()
 
   const std::uint32_t curTick = mSim->mCurTick;
 
-  // Pass 1: expire handles whose start tick has elapsed.
+  // Pass 1: expire handles whose start tick has elapsed (skipped while none can: sDecalExpiryHint).
   const auto* const listHeadNode = static_cast<const CDecalHandleListNode*>(&mHandleListHead);
-  for (CDecalHandleListNode* node = mHandleListHead.mNext; node != listHeadNode;) {
-    CDecalHandleListNode* const next = node->mNext;
-    CDecalHandle* const handle = CDecalHandle::FromListNode(node);
-    if (handle->mInfo.mStartTick != 0u && handle->mInfo.mStartTick <= curTick) {
-      handle->mInfo.mStartTick = 0u;
-      DestroyHandle(handle);
+  const bool canSkip = sDecalExpiryHint.mBuffer == this && sDecalExpiryHint.mKnown &&
+                       curTick < sDecalExpiryHint.mEarliest;
+  if (!canSkip) {
+    std::uint32_t earliest = std::numeric_limits<std::uint32_t>::max();
+    for (CDecalHandleListNode* node = mHandleListHead.mNext; node != listHeadNode;) {
+      CDecalHandleListNode* const next = node->mNext;
+      CDecalHandle* const handle = CDecalHandle::FromListNode(node);
+      if (handle->mInfo.mStartTick != 0u && handle->mInfo.mStartTick <= curTick) {
+        handle->mInfo.mStartTick = 0u;
+        DestroyHandle(handle);
+      } else if (handle->mInfo.mStartTick != 0u && handle->mInfo.mStartTick < earliest) {
+        earliest = handle->mInfo.mStartTick;
+      }
+      node = next;
     }
-    node = next;
+    sDecalExpiryHint = SDecalExpiryHint{this, true, earliest};
   }
 
   CArmyImpl** const armiesBegin = mSim->mArmiesList.begin();

@@ -1403,10 +1403,50 @@ namespace moho
    * What it does:
    * Delegates category-name lookup to the shared resolver implementation.
    */
+  namespace
+  {
+    /**
+     * Engine addition (performance): category name -> set, per thread, for one rules object. The
+     * engine asks by string literal on hot paths (`IsInCategory("TRANSPORTATION")`, 135 call sites:
+     * movement, guard and build tasks), and each ask built an msvc8::string and walked the category map
+     * by string compares. Entries are keyed by the name's address and checked against a copy of its
+     * text, so a reused buffer cannot hit. Only found categories are kept (a name asked before its
+     * category is registered keeps going to the map); map nodes never move, and destroying the rules
+     * object moves gRulesGeneration.
+     */
+    struct SCategoryNameCacheEntry
+    {
+      const char* mName = nullptr;
+      const RRuleGameRulesImpl* mRules = nullptr; // each entry knows its rules object and generation,
+      std::uint64_t mGeneration = ~0ull;          // so two rules objects asking in turn never thrash it
+      const EntityCategorySet* mSet = nullptr;
+      char mText[32]{};
+    };
+    thread_local SCategoryNameCacheEntry tCategoryNames[256];
+  } // namespace
+
   const EntityCategorySet* RRuleGameRulesImpl::GetEntityCategory(const char* categoryName) const
   {
     const auto* const resolver = reinterpret_cast<const EntityCategoryLookupResolver*>(this);
-    return resolver->EntityCategoryLookupResolver::GetEntityCategory(categoryName);
+    if (categoryName == nullptr || mEntityCategoryLookup == nullptr) {
+      return resolver->EntityCategoryLookupResolver::GetEntityCategory(categoryName);
+    }
+    const std::uint64_t generation = gRulesGeneration.load(std::memory_order_relaxed);
+    SCategoryNameCacheEntry& entry = tCategoryNames[(reinterpret_cast<std::uintptr_t>(categoryName) >> 2u) & 255u];
+    if (entry.mName == categoryName && entry.mRules == this && entry.mGeneration == generation &&
+        std::strcmp(entry.mText, categoryName) == 0) {
+      return entry.mSet;
+    }
+    const EntityCategorySet* const set = resolver->EntityCategoryLookupResolver::GetEntityCategory(categoryName);
+    const std::size_t length = std::strlen(categoryName);
+    if (set != &mEntityCategoryLookup->mCategoryFallback && length < sizeof(entry.mText)) {
+      entry.mName = categoryName;
+      entry.mRules = this;
+      entry.mGeneration = generation;
+      std::memcpy(entry.mText, categoryName, length + 1u);
+      entry.mSet = set;
+    }
+    return set;
   }
 
   /**

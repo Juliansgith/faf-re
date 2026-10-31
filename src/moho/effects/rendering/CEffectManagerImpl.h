@@ -262,4 +262,15 @@ namespace moho
    * thread is running, or null outside one. `Sim::GetParticleBuffer` returns it when set.
    */
   [[nodiscard]] SParticleBuffer* EffectTickChunkParticleBuffer() noexcept;
+
+  /**
+   * Engine addition (performance): true when nothing draws particles -- `sim_SyncParticles 0`
+   * (headless) or an unpaced agent session. Emitters then age without emitting. Particles draw
+   * from a random stream of their own, so this cannot change the game.
+   */
+  [[nodiscard]] bool EFX_SkipParticleEmission() noexcept;
+
+  /// Engine addition (sim_EffectOrder): the active list was relinked some other way (loading); the next
+  /// effect tick rebuilds its order vector from the list.
+  void EFX_InvalidateEffectOrder() noexcept;
 } // namespace moho

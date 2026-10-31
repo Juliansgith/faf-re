@@ -2,6 +2,7 @@
 #include "platform/Interlocked.h"
 #include "legacy/math/X87Math.h"
 #include "moho/agent/AgentBridge.h"
+#include "moho/effects/rendering/CEffectManagerImpl.h"
 
 #include <cmath>
 #include <cstddef>
@@ -1127,8 +1128,11 @@ namespace moho
   void CEfxEmitter::OnTick()
   {
     const float* const start = mParams.start_;
+    // Engine addition (performance): mPos only feeds the camera tests (CanSeeCam, the LOD cutoff,
+    // the recon visibility of the emitter); with no camera at all (headless) nothing reads it, and
+    // the attach-bone matrix it costs is pure work.
     if ((start[EFFECT_EMITIFVISIBLE] > 0.0f || start[EFFECT_CREATEIFVISIBLE] > 0.0f)
-        && (mManager->GetSim()->mCurTick % 3u) == 0u) {
+        && (mManager->GetSim()->mCurTick % 3u) == 0u && !mManager->GetSim()->mSyncFilter.geoCams.empty()) {
       VMatrix4 attachMatrix{};
       (void)InterpolatePosition(this, &attachMatrix, 0, 0.0f);
       const float* const p = mParams.start_;
@@ -1149,11 +1153,11 @@ namespace moho
       return;
     }
 
-    // Engine addition: an unpaced agent-bridge session emits no particles (they only feed the
-    // renderer). Age the emitter the way the not-visible path in IsVisible does, so it still
-    // reaches the end of its lifetime. Touches only this emitter (sim_ParallelEffects may run
-    // this on a sim worker).
-    if (AGENT_SkipParticleEmission()) {
+    // Engine addition: an unpaced agent-bridge session, or a run that draws nothing
+    // (sim_SyncParticles 0), emits no particles (they only feed the renderer). Age the emitter
+    // the way the not-visible path in IsVisible does, so it still reaches the end of its
+    // lifetime. Touches only this emitter (sim_ParallelEffects may run this on a sim worker).
+    if (EFX_SkipParticleEmission()) {
       ++mLife;
       return;
     }

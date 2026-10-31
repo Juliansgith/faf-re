@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <cmath>
 #include <cstdarg>
@@ -4265,7 +4266,32 @@ namespace
       (void)sEngineStatSyncEntityCount->SetInt(&syncedEntityCount);
     }
   }
+
+  std::atomic<int> sLiveUnitCount{0}; // sim_SyncEntityRecords 0: the units in the entity DB, every 50 beats
 } // namespace
+
+namespace moho
+{
+  // Engine addition (faf-neural-ai, performance): 0 runs the sync walk with no packet, as a training
+  // game does -- every entity still does its Sync bookkeeping, but no entity or unit record is copied
+  // for a user session that nothing reads (headless). The records are copies of sim state.
+  bool sim_SyncEntityRecords = true;
+  TConVar<bool> gTConVar_sim_SyncEntityRecords(
+    "sim_SyncEntityRecords",
+    "Copy entity and unit records into the sync packet (off: nothing reads them -- headless).",
+    &sim_SyncEntityRecords
+  );
+
+  bool SIM_SyncEntityRecords() noexcept
+  {
+    return sim_SyncEntityRecords && !AGENT_TrainingMode();
+  }
+
+  int SIM_LiveUnitCount() noexcept
+  {
+    return sLiveUnitCount.load(std::memory_order_relaxed);
+  }
+} // namespace moho
 
 /**
  * Address: 0x007474B0 (FUN_007474B0)
@@ -4461,7 +4487,8 @@ void Sim::Sync(const SSyncFilter& filter, SSyncData*& outSyncData)
   // record is copied for the user session, which nobody watches in a training
   // game. The records are copies of sim state that only the user session
   // reads.
-  SSyncData* const entitySyncData = AGENT_TrainingMode() ? nullptr : outSyncData;
+  // sim_SyncEntityRecords 0 (headless) takes the same no-packet walk.
+  SSyncData* const entitySyncData = SIM_SyncEntityRecords() ? outSyncData : nullptr;
   std::int32_t syncedEntityCount = 0;
   // sim_ParallelSync: the walk leaves the allocation-free half of each unit-update copy to
   // workers, which finish it before anything else touches the packet. (Inactive without a packet.)
@@ -4513,6 +4540,14 @@ void Sim::Sync(const SSyncFilter& filter, SSyncData*& outSyncData)
   }
   unitUpdateFills.Finish();
   StoreSyncEntityCountStat(syncedEntityCount);
+  if (entitySyncData == nullptr && !AGENT_TrainingMode() && (mCurBeat % 50u) == 0u && mEntityDB != nullptr) {
+    // No create/delete records to count units from (headless `--progress`): count the DB's units.
+    int units = 0;
+    for (CUnitIterAllArmies it(this); it.mCur != nullptr; it.Next()) {
+      ++units;
+    }
+    sLiveUnitCount.store(units, std::memory_order_relaxed);
+  }
 
   if (mRequestXMLArmyStatsSubmit) {
     mRequestXMLArmyStatsSubmit = false;
@@ -4827,6 +4862,13 @@ namespace moho
     &sim_ParallelCoords
   );
 
+  bool sim_ParallelBlipRefresh = true;
+  TConVar<bool> gTConVar_sim_ParallelBlipRefresh(
+    "sim_ParallelBlipRefresh",
+    "Refresh recon blips from their source units on sim workers; dirty-list links and layer changes stay serial, in order (needs sim_Workers > 0).",
+    &sim_ParallelBlipRefresh
+  );
+
   bool sim_ReconOverlap = true;
   TConVar<bool> gTConVar_sim_ReconOverlap(
     "sim_ReconOverlap",
@@ -4937,6 +4979,39 @@ void Sim::RefreshBlips()
   // `CUnitIterAllArmies::Next`, refreshing each blip from its source unit.
   auto& entities = mEntityDB->mAllUnits;
   const auto blipsEnd = entities.lower_bound(kReconBlipFamilyEndId);
+#if !FAF_SERVER_MODE
+  // sim_ParallelBlipRefresh (engine addition, performance): each blip's own fields on the sim workers,
+  // then, in blip order on this thread, the dirty-list links and layer changes -- the same list order
+  // and the same values (a refresh reads only its source unit, which no refresh writes).
+  if (sim_ParallelBlipRefresh && CSimWorkerPool::ParallelEnabled()) {
+    struct SBlipRefresh
+    {
+      ReconBlip* mBlip;
+      ELayer mLayer;
+      bool mRefreshed;
+      bool mLink;
+    };
+    static std::vector<SBlipRefresh> sBlips;
+    sBlips.clear();
+    for (auto it = entities.lower_bound(kReconBlipFamilyBeginId); it != blipsEnd; ++it) {
+      sBlips.push_back({static_cast<ReconBlip*>(it->second), ELayer{}, false, false});
+    }
+    if (sBlips.size() >= 256u) {
+      CSimWorkerPool::Get().ParallelFor(sBlips.size(), 64u, [](const std::size_t begin, const std::size_t end) {
+        for (std::size_t i = begin; i < end; ++i) {
+          SBlipRefresh& entry = sBlips[i];
+          entry.mRefreshed = entry.mBlip->RefreshOwnFields(entry.mLink, entry.mLayer);
+        }
+      });
+      for (const SBlipRefresh& entry : sBlips) {
+        if (entry.mRefreshed) {
+          entry.mBlip->RefreshShared(entry.mLink, entry.mLayer);
+        }
+      }
+      return;
+    }
+  }
+#endif
   for (auto it = entities.lower_bound(kReconBlipFamilyBeginId); it != blipsEnd; ++it) {
     static_cast<ReconBlip*>(it->second)->Refresh();
   }

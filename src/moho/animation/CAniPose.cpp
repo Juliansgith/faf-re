@@ -905,6 +905,43 @@ namespace moho
    * Seeds destination pose-bone local transforms from skeleton bind lanes and
    * resets per-bone composite invalidation flags.
    */
+  bool CAniPose::RecycleAsRestPose(const CAniPose& prior)
+  {
+    const CAniSkel* const skeleton = prior.mSkeleton.get();
+    const std::size_t boneCount = static_cast<std::size_t>(prior.mBones.end() - prior.mBones.begin());
+    if (!sim_FastBoneUpdates || skeleton == nullptr || mSkeleton != prior.mSkeleton || boneCount == 0u ||
+        mBones.begin() == nullptr || prior.mBones.begin() == nullptr ||
+        static_cast<std::size_t>(mBones.end() - mBones.begin()) != boneCount ||
+        skeleton->mBones.size() != boneCount || skeleton->mBones.begin() == nullptr) {
+      return false;
+    }
+    // OverwritePose's pose-level copy (the skeleton is already the same)
+    mScale = prior.mScale;
+    mLocalTransform = prior.mLocalTransform;
+    mMaxOffset = prior.mMaxOffset;
+
+    const SAniSkelBone* const rest = skeleton->mBones.begin();
+    const CAniPoseBone* const source = prior.mBones.begin();
+    CAniPoseBone* const destination = mBones.begin();
+    const float scale = mScale;
+    for (std::size_t index = 0; index < boneCount; ++index) {
+      CAniPoseBone& bone = destination[index];
+      bone.mVisible = source[index].mVisible;
+      if (scale == 1.0f) {
+        bone.mLocalTransform = rest[index].mLocalTransform;
+      } else {
+        bone.mLocalTransform.pos_.x = rest[index].mLocalTransform.pos_.x * scale;
+        bone.mLocalTransform.pos_.y = rest[index].mLocalTransform.pos_.y * scale;
+        bone.mLocalTransform.pos_.z = rest[index].mLocalTransform.pos_.z * scale;
+        bone.mLocalTransform.orient_ = rest[index].mLocalTransform.orient_;
+      }
+      bone.mCompositeDirty = 1u;
+      bone.mSkipNextInterp = 0u;
+      bone.mCompositeIsLocal = 0u;
+    }
+    return true;
+  }
+
   void CAniPose::UpdateBones()
   {
     CAniPoseBone* const destinationBegin = mBones.begin();

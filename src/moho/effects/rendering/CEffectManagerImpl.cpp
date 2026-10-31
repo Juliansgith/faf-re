@@ -5,6 +5,7 @@
 #include <memory>
 #include <new>
 #include <typeinfo>
+#include <unordered_map>
 #include <vector>
 
 #include "gpg/core/utils/Global.h"
@@ -127,6 +128,102 @@ namespace moho
       return true;
     }
 
+    /**
+     * Engine addition (performance, `sim_EffectOrder`): mActiveEffects' order kept as a vector, so the
+     * parallel tick does not walk the intrusive list -- one cache miss per effect, 15-20k effects in a
+     * 12-player late game, all on the sim thread. Effects only enter the list at its tail
+     * (LinkActiveEffect) and only leave it through DestroyEffect (purged later), so appends and
+     * tombstones keep the vector in list order; a removed effect's slot holds null until compaction.
+     * Anything else that relinks the list (loading, a second manager) invalidates it, and the next
+     * tick rebuilds it from the list. `sim_EffectOrderCheck` compares it with the list every tick.
+     */
+    struct SActiveEffectOrder
+    {
+      struct Slot
+      {
+        IEffect* mEffect;
+        bool mWorker; // TicksOnWorkers, decided once at link time
+      };
+      const TDatList<IEffect, void>* mList = nullptr; // the list mirrored; null: invalid
+      std::vector<Slot> mSlots;
+      std::unordered_map<const IEffect*, std::size_t> mIndex;
+      std::size_t mLive = 0;
+      std::size_t mNonWorker = 0; // live slots that must tick on the sim thread
+    };
+    SActiveEffectOrder sEffectOrder;
+
+    void InvalidateEffectOrder() noexcept
+    {
+      sEffectOrder.mList = nullptr;
+    }
+
+    void NoteEffectLinked(const TDatList<IEffect, void>& list, IEffect* const effect)
+    {
+      if (sEffectOrder.mList != &list) {
+        return;
+      }
+      const bool worker = TicksOnWorkers(effect);
+      sEffectOrder.mIndex[effect] = sEffectOrder.mSlots.size();
+      sEffectOrder.mSlots.push_back({effect, worker});
+      ++sEffectOrder.mLive;
+      if (!worker) {
+        ++sEffectOrder.mNonWorker;
+      }
+    }
+
+    void NoteEffectUnlinked(const TDatList<IEffect, void>& list, const IEffect* const effect)
+    {
+      if (sEffectOrder.mList != &list) {
+        return;
+      }
+      const auto it = sEffectOrder.mIndex.find(effect);
+      if (it == sEffectOrder.mIndex.end()) {
+        return; // already destroyed (DestroyEffect twice) or never active
+      }
+      SActiveEffectOrder::Slot& slot = sEffectOrder.mSlots[it->second];
+      if (!slot.mWorker) {
+        --sEffectOrder.mNonWorker;
+      }
+      slot.mEffect = nullptr;
+      --sEffectOrder.mLive;
+      sEffectOrder.mIndex.erase(it);
+    }
+
+    void RebuildEffectOrder(const TDatList<IEffect, void>& list)
+    {
+      sEffectOrder.mSlots.clear();
+      sEffectOrder.mIndex.clear();
+      sEffectOrder.mLive = 0;
+      sEffectOrder.mNonWorker = 0;
+      sEffectOrder.mList = &list;
+      for (IEffect* const effect : const_cast<TDatList<IEffect, void>&>(list).owners()) {
+        NoteEffectLinked(list, effect);
+      }
+    }
+
+    void CompactEffectOrder()
+    {
+      std::size_t out = 0;
+      for (const SActiveEffectOrder::Slot& slot : sEffectOrder.mSlots) {
+        if (slot.mEffect != nullptr) {
+          sEffectOrder.mIndex[slot.mEffect] = out;
+          sEffectOrder.mSlots[out++] = slot;
+        }
+      }
+      sEffectOrder.mSlots.resize(out);
+    }
+
+    bool sim_EffectOrder = true;
+    TConVar<bool> gTConVar_sim_EffectOrder(
+      "sim_EffectOrder", "Keep the active effects' order as a vector for the parallel effect tick (same order).",
+      &sim_EffectOrder
+    );
+    bool sim_EffectOrderCheck = false;
+    TConVar<bool> gTConVar_sim_EffectOrderCheck(
+      "sim_EffectOrderCheck", "Compare sim_EffectOrder's vector with the active effect list every tick (slow).",
+      &sim_EffectOrderCheck
+    );
+
     /// Appends `source` to `target` one push_back at a time, as the serial walk does, and empties it.
     template <class T>
     void AppendInOrder(msvc8::vector<T>& target, msvc8::vector<T>& source)
@@ -171,6 +268,7 @@ namespace moho
       }
 
       effect->ListLinkBefore(&activeEffects);
+      NoteEffectLinked(activeEffects, effect); // sim_EffectOrder: the list's new tail
       return effect;
     }
 
@@ -265,6 +363,9 @@ namespace moho
    */
   CEffectManagerImpl::~CEffectManagerImpl()
   {
+    if (sEffectOrder.mList == &mActiveEffects) {
+      InvalidateEffectOrder();
+    }
     // Preserve dtor behavior: migrate still-active effects into the pending
     // destroy list, then purge that list.
     while (!mActiveEffects.empty()) {
@@ -497,6 +598,7 @@ namespace moho
       return;
     }
 
+    NoteEffectUnlinked(mActiveEffects, effect); // sim_EffectOrder: leaves the active list here
     effect->ListLinkBefore(&mDestroyedEffects);
   }
 
@@ -537,11 +639,51 @@ namespace moho
     // The serial walk visits exactly this list: an OnTick relinks at most itself, and only into
     // mDestroyedEffects, which the walk has already read past.
     sEffectTickSnapshot.clear();
-    for (IEffect* const effect : mActiveEffects.owners()) {
-      if (!TicksOnWorkers(effect)) {
+    if (sim_EffectOrder) {
+      // sim_EffectOrder: the list's order without walking it; null slots are effects destroyed since.
+      if (sEffectOrder.mList != &mActiveEffects) {
+        RebuildEffectOrder(mActiveEffects);
+      } else if (sEffectOrder.mSlots.size() > 1024u && sEffectOrder.mLive < sEffectOrder.mSlots.size() * 3u / 4u) {
+        CompactEffectOrder();
+      }
+      if (sim_EffectOrderCheck) {
+        std::size_t slot = 0;
+        bool same = true;
+        for (IEffect* const effect : mActiveEffects.owners()) {
+          while (slot < sEffectOrder.mSlots.size() && sEffectOrder.mSlots[slot].mEffect == nullptr) {
+            ++slot;
+          }
+          if (slot >= sEffectOrder.mSlots.size() || sEffectOrder.mSlots[slot].mEffect != effect) {
+            same = false;
+            break;
+          }
+          ++slot;
+        }
+        while (same && slot < sEffectOrder.mSlots.size()) {
+          same = sEffectOrder.mSlots[slot++].mEffect == nullptr;
+        }
+        if (!same) {
+          gpg::Warnf("sim_EffectOrderCheck: the effect order vector left the list's order at tick %u; rebuilt",
+                     static_cast<unsigned>(mSim->mCurTick));
+          RebuildEffectOrder(mActiveEffects);
+        }
+      }
+      if (sEffectOrder.mNonWorker != 0u) {
         return false;
       }
-      sEffectTickSnapshot.push_back(effect);
+      for (const SActiveEffectOrder::Slot& slot : sEffectOrder.mSlots) {
+        if (slot.mEffect != nullptr) {
+          sEffectTickSnapshot.push_back(slot.mEffect);
+        }
+      }
+    } else {
+      InvalidateEffectOrder();
+      for (IEffect* const effect : mActiveEffects.owners()) {
+        if (!TicksOnWorkers(effect)) {
+          return false;
+        }
+        sEffectTickSnapshot.push_back(effect);
+      }
     }
     const std::size_t count = sEffectTickSnapshot.size();
     if (count == 0u || count < static_cast<std::size_t>(std::max(1, sim_ParallelEffectsMin))) {
@@ -608,6 +750,16 @@ namespace moho
   {
     SEffectTickChunk* const chunk = tEffectTickChunk;
     return chunk != nullptr ? &chunk->mParticles : nullptr;
+  }
+
+  void EFX_InvalidateEffectOrder() noexcept
+  {
+    InvalidateEffectOrder();
+  }
+
+  bool EFX_SkipParticleEmission() noexcept
+  {
+    return !sim_SyncParticles || AGENT_SkipParticleEmission();
   }
 
   /**

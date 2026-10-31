@@ -1021,6 +1021,47 @@ void ReconBlip::Refresh()
   mVarDat.mIsBeingBuilt = sourceUnit->IsBeingBuilt() ? 1u : 0u;
 }
 
+bool ReconBlip::RefreshOwnFields(bool& outLink, ELayer& outLayer)
+{
+  Unit* const sourceUnit = GetSourceUnit();
+  if (!sourceUnit || sourceUnit->DestroyQueued()) {
+    return false;
+  }
+
+  // Refresh's SetPendingTransform, less its dirty-list link (RefreshShared makes it, in order).
+  VTransform pending = sourceUnit->mPendingTransform;
+  pending.pos_.x += mJamOffset.x;
+  pending.pos_.y += mJamOffset.y;
+  pending.pos_.z += mJamOffset.z;
+  mPendingTransform = pending;
+  mPendingVelocityScale = sourceUnit->mPendingVelocityScale;
+  outLink = SimulationRef != nullptr && ListIsSingleton();
+
+  const VTransform& sourceTransform = sourceUnit->GetTransform();
+  mVarDat.mCurTransform.orient_ = sourceTransform.orient_;
+  mVarDat.mCurTransform.pos_ = {
+    sourceTransform.pos_.x + mJamOffset.x, sourceTransform.pos_.y + mJamOffset.y, sourceTransform.pos_.z + mJamOffset.z
+  };
+  mVarDat.mCurImpactValue = sourceUnit->mVarDat.mCurImpactValue;
+  outLayer = sourceUnit->mVarDat.mLayerMask; // SetCurrentLayer runs in RefreshShared
+
+  SetStrategicUnderlay(sourceUnit->GetStrategicUnderlay());
+  mUnitVarDat.mIsBusy = sourceUnit->mAttachInfo.HasAttachTarget();
+  const UnitAttributes& sourceAttributes = sourceUnit->GetAttributes();
+  mUnitVarDat.mAttributes.mReclaimable = sourceAttributes.mReclaimable;
+  mUnitVarDat.mAttributes.mCapturable = sourceAttributes.mCapturable;
+  mVarDat.mIsBeingBuilt = sourceUnit->IsBeingBuilt() ? 1u : 0u;
+  return true;
+}
+
+void ReconBlip::RefreshShared(const bool link, const ELayer layer)
+{
+  if (link && ListIsSingleton()) {
+    ListLinkBefore(&SimulationRef->mCoordEntities);
+  }
+  SetCurrentLayer(layer);
+}
+
 /**
  * Address: 0x005BF6F0 (FUN_005BF6F0)
  *

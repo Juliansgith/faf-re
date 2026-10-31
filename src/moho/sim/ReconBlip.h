@@ -473,6 +473,16 @@ namespace moho
     void Refresh();
 
     /**
+     * Engine addition (`sim_ParallelBlipRefresh`): `Refresh` in two parts. `RefreshOwnFields` writes
+     * only this blip (safe on a sim worker) and returns false when Refresh would do nothing;
+     * `RefreshShared` then does, on the sim thread and in blip order, what touches shared state: the
+     * dirty-list link `SetPendingTransform` makes and the layer change with its `OnLayerChange`
+     * callback (blips have no handler for it).
+     */
+    [[nodiscard]] bool RefreshOwnFields(bool& outLink, ELayer& outLayer);
+    void RefreshShared(bool link, ELayer layer);
+
+    /**
      * Address: 0x005BF6F0 (FUN_005BF6F0)
      *
      * What it does:

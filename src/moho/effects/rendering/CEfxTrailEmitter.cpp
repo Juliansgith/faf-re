@@ -9,6 +9,7 @@
 #include "gpg/core/containers/WriteArchive.h"
 #include "gpg/core/reflection/Reflection.h"
 #include "moho/ai/CAiReconDBImpl.h"
+#include "moho/effects/rendering/CEffectManagerImpl.h"
 #include "moho/effects/rendering/CEfxEmitter.h"
 #include "moho/effects/rendering/IEffectManager.h"
 #include "moho/entity/Entity.h"
@@ -527,6 +528,14 @@ namespace moho
   void CEfxTrailEmitter::OnTick()
   {
     if (ProcessLifetime() || !CalculateVisible()) {
+      return;
+    }
+
+    // Engine addition (performance): nothing draws trails (sim_SyncParticles 0, unpaced agent
+    // session). Take the not-visible path's catch-up step instead: mTrailLength + mTotalTicks,
+    // which ProcessLifetime reads, grows by one per tick on both paths.
+    if (EFX_SkipParticleEmission()) {
+      ++mTrailLength;
       return;
     }
 

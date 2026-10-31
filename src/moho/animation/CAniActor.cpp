@@ -567,12 +567,14 @@ namespace moho
     // control block; the referent this lane held before the swap is released.
     // Engine addition (sim_RecyclePose): when unique, overwrite in-place without heap reallocation.
     if (sim_RecyclePose && mPose != nullptr && mPose.unique()) {
-      mPose->OverwritePose(*mPriorPose);
+      if (!mPose->RecycleAsRestPose(*mPriorPose)) { // the copy and 0x0063AAEE in one pass
+        mPose->OverwritePose(*mPriorPose);
+        mPose->UpdateBones();
+      }
     } else {
       mPose.reset(new CAniPose(*mPriorPose));
+      mPose->UpdateBones();                   // 0x0063AAEE
     }
-
-    mPose->UpdateBones();                     // 0x0063AAEE
     mPose->SetWorldTransform(worldTransform); // 0x0063AAFA
 
     auto* const listHead = static_cast<TDatListItem<IAniManipulator, void>*>(&mManipulatorsByPrecedence);

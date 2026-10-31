@@ -68,6 +68,7 @@ namespace moho
       }
       effect->ListLinkBefore(&mActiveEffects);
     }
+    EFX_InvalidateEffectOrder(); // sim_EffectOrder: rebuilt from the loaded list
   }
 
   /**

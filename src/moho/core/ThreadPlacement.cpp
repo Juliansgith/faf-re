@@ -37,6 +37,7 @@ namespace moho
     {
       std::vector<SLogicalCpu> mLogical;
       DWORD mNode = 0;
+      int mL3 = 0; // index of the last-level cache it shares (a CCD on Zen); mode 3
     };
 
     struct SPlacementPlan
@@ -145,6 +146,22 @@ namespace moho
         return a.mNode < b.mNode;
       });
 
+      // Level-3 cache of each core (mode 3 keeps the sim thread and its workers on one).
+      int l3Count = 0;
+      ForEachProcessorRecord(QueryProcessorRelation(RelationCache), [&](const auto& record) {
+        if (record.Relationship != RelationCache || record.Cache.Level != 3) {
+          return;
+        }
+        const GROUP_AFFINITY& mask = record.Cache.GroupMask;
+        for (SPhysicalCore& core : cores) {
+          const SLogicalCpu& first = core.mLogical.front();
+          if (first.mGroup == mask.Group && (mask.Mask & (KAFFINITY{1} << first.mNumber)) != 0u) {
+            core.mL3 = l3Count;
+          }
+        }
+        ++l3Count;
+      });
+
       if (cores.size() < 4u) {
         gpg::Logf(
           "ThreadPlacement: %zu physical cores / %d logical processors: too few to give the main, sim and issue "
@@ -154,14 +171,56 @@ namespace moho
         return;
       }
 
-      // Core 0 takes most interrupts and DPCs: the dedicated threads start at core 1, and core 0 is
-      // the last physical core the workers get.
-      sPlan.mMain = cores[1].mLogical.front();
-      sPlan.mSim = cores[2].mLogical.front();
-      sPlan.mIssue = cores[3].mLogical.front();
-      sPlan.mWorkerCores.assign(cores.begin() + 4, cores.end());
-      sPlan.mWorkerCores.push_back(cores[0]);
-      sPlan.mValid = true;
+      if (sys_ThreadPlacement == 3 && l3Count > 1) {
+        // Mode 3 (engine addition, performance): the sim thread on the last last-level cache (away
+        // from core 0's interrupts), its workers on that cache's other cores first, then on that
+        // cache's SMT siblings, and only then elsewhere; main and issue on another cache. The
+        // workers' phases read what the sim thread has just written, which stays in that cache.
+        const int simL3 = cores.back().mL3;
+        std::vector<SPhysicalCore> nearCores;
+        std::vector<SPhysicalCore> farCores;
+        for (const SPhysicalCore& core : cores) {
+          (core.mL3 == simL3 ? nearCores : farCores).push_back(core);
+        }
+        if (nearCores.size() >= 2u && farCores.size() >= 3u) {
+          sPlan.mSim = nearCores[1].mLogical.front();
+          sPlan.mMain = farCores[1].mLogical.front();
+          sPlan.mIssue = farCores[2].mLogical.front();
+          sPlan.mWorkerCores.clear();
+          for (std::size_t i = 0; i < nearCores.size(); ++i) {
+            if (i != 1u) {
+              sPlan.mWorkerCores.push_back(nearCores[i]);
+            }
+          }
+          // the nearCores cache's siblings as one-processor cores (not the sim thread's own sibling)
+          for (std::size_t i = 0; i < nearCores.size(); ++i) {
+            if (i != 1u && nearCores[i].mLogical.size() > 1u) {
+              SPhysicalCore sibling;
+              sibling.mLogical.assign(nearCores[i].mLogical.begin() + 1, nearCores[i].mLogical.end());
+              sibling.mL3 = simL3;
+              sPlan.mWorkerCores.push_back(sibling);
+            }
+          }
+          for (std::size_t i = 3; i < farCores.size(); ++i) {
+            sPlan.mWorkerCores.push_back(farCores[i]);
+          }
+          sPlan.mWorkerCores.push_back(farCores[0]);
+          for (SPhysicalCore& core : sPlan.mWorkerCores) {
+            core.mLogical.resize(1); // siblings are listed on their own above
+          }
+          sPlan.mValid = true;
+        }
+      }
+      if (!sPlan.mValid) {
+        // Core 0 takes most interrupts and DPCs: the dedicated threads start at core 1, and core 0 is
+        // the last physical core the workers get.
+        sPlan.mMain = cores[1].mLogical.front();
+        sPlan.mSim = cores[2].mLogical.front();
+        sPlan.mIssue = cores[3].mLogical.front();
+        sPlan.mWorkerCores.assign(cores.begin() + 4, cores.end());
+        sPlan.mWorkerCores.push_back(cores[0]);
+        sPlan.mValid = true;
+      }
 
       std::string workers;
       for (const SPhysicalCore& core : sPlan.mWorkerCores) {
@@ -208,14 +267,15 @@ namespace moho
   TConVar<int> gTConVar_sys_ThreadPlacement(
     "sys_ThreadPlacement",
     "Where threads run: 0 lets the OS decide, 1 gives the main, sim and issue threads and the workers "
-    "ideal processors on separate physical cores, 2 pins them there. Applies to threads as they start.",
+    "ideal processors on separate physical cores, 2 pins them there, 3 pins the sim thread and its workers "
+    "to one last-level cache (CCD) first. Applies to threads as they start.",
     &sys_ThreadPlacement
   );
 
   void PlaceCurrentThread(const EThreadRole role, const unsigned int index)
   {
     const int mode = ResolvePlacementMode();
-    if (mode != 1 && mode != 2) {
+    if (mode != 1 && mode != 2 && mode != 3) {
       return;
     }
     std::call_once(sPlanOnce, BuildPlan);
@@ -242,7 +302,7 @@ namespace moho
         break;
     }
 
-    if (mode == 2) {
+    if (mode == 2 || mode == 3) {
       GROUP_AFFINITY affinity{};
       affinity.Group = cpu.mGroup;
       affinity.Mask = KAFFINITY{1} << cpu.mNumber;

@@ -55,6 +55,14 @@ namespace moho
    * (the `/synclog` beat log).
    */
   void REF_UpdateMD5(gpg::MD5Context& md5, const gpg::RRef& ref, std::FILE* traceFile, int indentDepth);
+
+  /// Engine addition: false when the sync walk copies no entity/unit records (sim_SyncEntityRecords 0,
+  /// training mode).
+  [[nodiscard]] bool SIM_SyncEntityRecords() noexcept;
+
+  /// Engine addition: with sim_SyncEntityRecords 0 (no create/delete records to count from), the units
+  /// in the entity DB as of the latest beat divisible by 50 (headless `--progress`).
+  [[nodiscard]] int SIM_LiveUnitCount() noexcept;
 } // namespace moho
 
 namespace moho

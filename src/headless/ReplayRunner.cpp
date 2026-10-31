@@ -664,9 +664,11 @@ namespace faf::headless
           }
         }
         if (options.progressEvery > 0 && result.beats % options.progressEvery == 0) {
-          std::printf(
-            "[%s] PROGRESS beat=%d t=%.3f units=%zu\n", label, packet->mCurBeat, SecondsSince(playStart), liveUnits.size()
-          );
+          // sim_SyncEntityRecords 0: no create/delete records; the sim counts its units instead
+          const std::size_t units = moho::SIM_SyncEntityRecords()
+                                      ? liveUnits.size()
+                                      : static_cast<std::size_t>(moho::SIM_LiveUnitCount());
+          std::printf("[%s] PROGRESS beat=%d t=%.3f units=%zu\n", label, packet->mCurBeat, SecondsSince(playStart), units);
           std::fflush(stdout);
         }
         if (options.maxBeats > 0 && result.beats >= options.maxBeats) {

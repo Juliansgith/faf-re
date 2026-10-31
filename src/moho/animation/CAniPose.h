@@ -359,6 +359,14 @@ namespace moho
     void UpdateBones();
 
     /**
+     * Engine addition (performance): `OverwritePose(prior)` then `UpdateBones()` in one pass, for a
+     * recycled pose of the same skeleton and bone count. UpdateBones overwrites every bone transform
+     * OverwritePose just copied, so only the bones' visibility carries over. Returns false (nothing
+     * done) when the shapes differ; the caller then runs the two steps.
+     */
+    [[nodiscard]] bool RecycleAsRestPose(const CAniPose& prior);
+
+    /**
      * Address: 0x0054B6D0 (FUN_0054B6D0, ?CopyPose@CAniPose@Moho@@QAEXPBV12@_N@Z)
      * Mangled: ?CopyPose@CAniPose@Moho@@QAEXPBV12@_N@Z
      *

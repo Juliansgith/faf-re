@@ -312,6 +312,11 @@ int main(int argc, char** argv)
     moho::CON_Execute("sim_SyncParticles 0"); // --lane-sizes counts the particle lanes
   }
   moho::CON_Execute("sim_DecalVisibility 0");
+  // the packet's entity records: --bone-stats, --lane-sizes, --state-digests and --wire-stats read them
+  if (options.boneStatsPath.empty() && options.laneSizesPath.empty() && options.stateDigestPath.empty() &&
+      options.wireStatsPath.empty() && !options.loopback) {
+    moho::CON_Execute("sim_SyncEntityRecords 0");
+  }
   RunStartupConsoleCommands();
   moho::PlaceCurrentThread(moho::EThreadRole::Main);
 
