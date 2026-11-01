@@ -302,6 +302,35 @@ namespace moho
   }
 
   /**
+   * Engine addition (performance): `traveler.ShouldSearchRect` for a run of candidates, most of which
+   * share their cluster rect. The answer depends only on the rect and the traveler's query state, which
+   * an expansion does not change, so a repeated rect reuses the last answer.
+   */
+  class SearchRectMemo
+  {
+  public:
+    explicit SearchRectMemo(IPathTraveler& traveler) noexcept
+      : mTraveler(traveler)
+    {}
+
+    [[nodiscard]] bool ShouldSearch(const gpg::Rect2i& rect)
+    {
+      if (!mHasLast || rect.x0 != mLast.x0 || rect.z0 != mLast.z0 || rect.x1 != mLast.x1 || rect.z1 != mLast.z1) {
+        mLast = rect;
+        mLastAnswer = mTraveler.ShouldSearchRect(rect);
+        mHasLast = true;
+      }
+      return mLastAnswer;
+    }
+
+  private:
+    IPathTraveler& mTraveler;
+    gpg::Rect2i mLast{};
+    bool mLastAnswer = false;
+    bool mHasLast = false;
+  };
+
+  /**
    * What it does:
    * The level-0 arm of `AddNeighbours` (0x00766350): the walkable subset of
    * the eight cells adjacent to `cell`.
@@ -320,6 +349,7 @@ namespace moho
       return true;
     }
 
+    SearchRectMemo searchRects(*traveler);
     std::uint32_t acceptedMask = 0u;
     for (std::size_t step = 0; step < 8; ++step) {
       if ((acceptedMask & kStepGate[step]) != kStepGate[step]) {
@@ -329,7 +359,7 @@ namespace moho
       const int candidateX = static_cast<std::uint16_t>(cell.x) + kStepOffsetX[step];
       const int candidateZ = static_cast<std::uint16_t>(cell.z) + kStepOffsetZ[step];
 
-      if (!traveler->ShouldSearchRect(mClusterMap->ClusterRect(candidateX, candidateZ, 1u))) {
+      if (!searchRects.ShouldSearch(mClusterMap->ClusterRect(candidateX, candidateZ, 1u))) {
         continue;
       }
 
@@ -381,6 +411,7 @@ namespace moho
 
     const gpg::Rect2i clusterBounds =
       clusterMap.ClusterIndexRect(cellX, cellZ, static_cast<std::uint8_t>(level));
+    SearchRectMemo searchRects(*traveler);
 
     for (int clusterX = clusterBounds.x0; clusterX < clusterBounds.x1; ++clusterX) {
       const int originX = clusterX << originShift;
@@ -436,7 +467,7 @@ namespace moho
             if (static_cast<std::uint32_t>(level) != topLevel) {
               const gpg::Rect2i parentRect =
                 clusterMap.ClusterRect(candidate.x, candidate.z, static_cast<std::uint8_t>(level + 1));
-              if (!traveler->ShouldSearchRect(parentRect)) {
+              if (!searchRects.ShouldSearch(parentRect)) {
                 continue;
               }
             }

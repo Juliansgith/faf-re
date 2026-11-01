@@ -562,6 +562,49 @@ namespace msvc8
     return RoundExactProductToFloat(static_cast<double>(factor), wordValue);
   }
 
+#if defined(_M_X64) || defined(__x86_64__)
+  namespace
+  {
+    /**
+     * Engine addition (performance): fsin/fcos cost tens of cycles and the sim asks for the same angles
+     * tick after tick (turret limits, idle turrets, path splines). A per-thread direct-mapped memo keyed
+     * by the argument's bits returns the value the instruction gave for it; precision control does not
+     * affect fsin/fcos, so the result depends on the argument alone. Slots start zeroed, which reads as
+     * the argument kTrigMemoSalt: that one NaN pattern is always computed.
+     */
+    constexpr std::uint32_t kTrigMemoSalt = 0x7FC1D2E3u;
+    constexpr int kTrigMemoBits = 9;
+
+    struct TrigMemo
+    {
+      std::uint32_t keys[1u << kTrigMemoBits];
+      float values[1u << kTrigMemoBits];
+    };
+    thread_local TrigMemo tSinMemo;
+    thread_local TrigMemo tCosMemo;
+
+    template <float (*Compute)(float)>
+    [[nodiscard]] inline float MemoTrig(TrigMemo& memo, const float x) noexcept
+    {
+      const std::uint32_t bits = std::bit_cast<std::uint32_t>(x);
+      if (bits == kTrigMemoSalt) {
+        return Compute(x);
+      }
+      const std::uint32_t slot = (bits * 0x9E3779B1u) >> (32 - kTrigMemoBits);
+      if (memo.keys[slot] == (bits ^ kTrigMemoSalt)) {
+        return memo.values[slot];
+      }
+      const float value = Compute(x);
+      memo.keys[slot] = bits ^ kTrigMemoSalt;
+      memo.values[slot] = value;
+      return value;
+    }
+
+    float X87SinUncached(const float x) noexcept { return msvc8_x87_sinf(x); }
+    float X87CosUncached(const float x) noexcept { return msvc8_x87_cosf(x); }
+  } // namespace
+#endif
+
   /**
    * Address: 0x005734E0 (sinf; `fld [esp+4]; fsin; ret`)
    */
@@ -576,7 +619,7 @@ namespace msvc8
     }
     return result;
 #else
-    return msvc8_x87_sinf(x);
+    return MemoTrig<&X87SinUncached>(tSinMemo, x);
 #endif
   }
 
@@ -594,7 +637,7 @@ namespace msvc8
     }
     return result;
 #else
-    return msvc8_x87_cosf(x);
+    return MemoTrig<&X87CosUncached>(tCosMemo, x);
 #endif
   }
 
