@@ -101,6 +101,14 @@ namespace moho
     IEffect* CreateAttachedEmitter(Entity* entity, int boneIndex, const char* blueprintName, int armyIndex) override;
 
     /**
+     * Engine addition (sim_EffectStandIn): with nothing drawing particles (EFX_SkipParticleEmission), the
+     * emitter scripts get for `blueprintName` -- one live emitter per sim that DestroyEffect leaves alone --
+     * or null when the binary's path must run (the switch is off, the name is invalid, or the blueprint
+     * is off at this fidelity).
+     */
+    [[nodiscard]] IEffect* LuaStandInEmitter(const char* blueprintName);
+
+    /**
      * Address: 0x0065E520 (FUN_0065E520, Moho::CEffectManagerImpl::CreateEmitterAtBone)
      *
      * What it does:

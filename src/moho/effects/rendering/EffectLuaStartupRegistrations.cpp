@@ -1046,7 +1046,10 @@ namespace moho
     }
 
     Sim* const sim = ResolveGlobalSim(rawState);
-    IEffect* const effect = sim->mEffectManager->CreateAttachedEmitter(entity, boneIndex, blueprintName, armyIndex);
+    IEffect* effect = sim->mEffectManager->LuaStandInEmitter(blueprintName); // engine addition
+    if (effect == nullptr) {
+      effect = sim->mEffectManager->CreateAttachedEmitter(entity, boneIndex, blueprintName, armyIndex);
+    }
     if (!effect) {
       return 0;
     }
@@ -1384,7 +1387,10 @@ namespace moho
     }
 
     Sim* const sim = ResolveGlobalSim(rawState);
-    IEffect* const effect = sim->mEffectManager->CreateEmitterAtEntity(entity, blueprintName, armyIndex);
+    IEffect* effect = sim->mEffectManager->LuaStandInEmitter(blueprintName); // engine addition
+    if (effect == nullptr) {
+      effect = sim->mEffectManager->CreateEmitterAtEntity(entity, blueprintName, armyIndex);
+    }
     if (!effect) {
       return 0;
     }
@@ -1457,7 +1463,10 @@ namespace moho
     }
 
     Sim* const sim = ResolveGlobalSim(rawState);
-    IEffect* const effect = sim->mEffectManager->CreateEmitterOnEntity(entity, blueprintName, armyIndex);
+    IEffect* effect = sim->mEffectManager->LuaStandInEmitter(blueprintName); // engine addition
+    if (effect == nullptr) {
+      effect = sim->mEffectManager->CreateEmitterOnEntity(entity, blueprintName, armyIndex);
+    }
     if (!effect) {
       return 0;
     }
@@ -1747,7 +1756,10 @@ namespace moho
     }
 
     Sim* const sim = ResolveGlobalSim(rawState);
-    IEffect* const effect = sim->mEffectManager->CreateEmitterAtBone(entity, boneIndex, blueprintName, armyIndex);
+    IEffect* effect = sim->mEffectManager->LuaStandInEmitter(blueprintName); // engine addition
+    if (effect == nullptr) {
+      effect = sim->mEffectManager->CreateEmitterAtBone(entity, boneIndex, blueprintName, armyIndex);
+    }
     if (!effect) {
       return 0;
     }

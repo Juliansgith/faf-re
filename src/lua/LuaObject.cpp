@@ -10316,6 +10316,8 @@ namespace
 	 * index 2 is nil. The comparator path pushes the function first, so the two
 	 * operand indices shift by one and two respectively.
 	 */
+	bool LuaTryNativeComparator(lua_State* L);
+
 	[[nodiscard]] bool LuaSortCompare(lua_State* const state, const int leftIndex, const int rightIndex)
 	{
 		if (lua_type(state, 2) == LUA_TNIL) {
@@ -10325,7 +10327,9 @@ namespace
 		lua_pushvalue(state, 2);
 		lua_pushvalue(state, leftIndex < 0 ? leftIndex - 1 : leftIndex);
 		lua_pushvalue(state, rightIndex < 0 ? rightIndex - 2 : rightIndex);
-		LuaCallUnprotected(state, 2, 1);
+		if (!LuaTryNativeComparator(state)) {
+			LuaCallUnprotected(state, 2, 1);
+		}
 		const bool result = lua_toboolean(state, -1) != 0;
 		lua_settop(state, -2);
 		return result;
@@ -19370,6 +19374,108 @@ extern "C"
 	}
 }
 #pragma warning(pop)
+
+namespace
+{
+	/**
+	 * Engine addition (performance): one table.sort comparator call from LuaSortCompare without the
+	 * interpreter, for comparators built only from field reads, number less-than, jumps, booleans, moves,
+	 * constants and a one-value return (`return a.F > b.F`, `return a.X.Y > b.X.Y`: the AI grids sort
+	 * every cell this way several times a second per brain). comp, a and b sit at L->top-3..-1.
+	 *
+	 * It leaves what luaD_call(L, comp, 1) leaves: luaD_precall's nil fill of the frame, each register as
+	 * the instructions write it, the proto's invocation count, the result over `comp` with top above it,
+	 * and luaD_call's closing GC check. Anything else -- hooks, another opcode, a field that is absent
+	 * (__index), a non-table read, a comparison that is not number < number, stack, CallInfo or C-call
+	 * growth -- returns false before the commit, and the caller makes the real call, which redoes the frame
+	 * from its nil fill (registers written so far are rewritten or left nil-tagged).
+	 */
+	bool LuaTryNativeComparator(lua_State* const L)
+	{
+		constexpr unsigned int kMaxCCalls = 200; // luaD_call
+		StkId const func = L->top - 3;
+		if (func->tt != LUA_TFUNCTION || L->l_G->hookmask != 0) {
+			return false;
+		}
+		Proto* const proto = static_cast<GCObject*>(func->value.p)->cl.l.p;
+		if (proto->is_vararg != 0 || proto->numparams != 2 ||
+		    static_cast<unsigned int>(L->nCcalls) + 1u >= kMaxCCalls || &L->ci[1] == L->end_ci ||
+		    L->stack_last - L->top <= proto->maxstacksize) {
+			return false;
+		}
+
+		StkId const base = func + 1;
+		for (StkId slot = L->top; slot < base + proto->maxstacksize; ++slot) {
+			slot->tt = LUA_TNIL; // luaD_precall
+		}
+
+		const TObject* const k = proto->k;
+		const auto rk = [base, k](const int index) -> const TObject* {
+			return (index >= kLuaMaxStack) ? &k[index - kLuaMaxStack] : &base[index];
+		};
+		const Instruction* pc = proto->code;
+		for (int steps = 0; steps < 64; ++steps) {
+			const Instruction i = *pc++;
+			StkId const ra = base + LuaGetArgA(i);
+			switch (LuaGetOpcode(i)) {
+			case kOpMove:
+				*ra = base[LuaGetArgB(i)];
+				break;
+			case kOpLoadK:
+				*ra = k[LuaGetArgBx(i)];
+				break;
+			case kOpLoadBool:
+				ra->value.b = LuaGetArgB(i);
+				ra->tt = LUA_TBOOLEAN;
+				if (LuaGetArgC(i) != 0) {
+					++pc;
+				}
+				break;
+			case kOpGetTable: {
+				const TObject* const table = &base[LuaGetArgB(i)];
+				if (table->tt != LUA_TTABLE) {
+					return false;
+				}
+				const TObject* const value = luaH_get(static_cast<Table*>(table->value.p), rk(LuaGetArgC(i)));
+				if (value->tt == LUA_TNIL) {
+					return false;
+				}
+				*ra = *value;
+				break;
+			}
+			case kOpLt: {
+				const TObject* const left = rk(LuaGetArgB(i));
+				const TObject* const right = rk(LuaGetArgC(i));
+				if (left->tt != LUA_TNUMBER || right->tt != LUA_TNUMBER) {
+					return false;
+				}
+				if ((right->value.n > left->value.n ? 1 : 0) == LuaGetArgA(i)) { // luaV_lessthan
+					pc += LuaGetArgSBx(*pc) + 1;
+				} else {
+					++pc;
+				}
+				break;
+			}
+			case kOpJmp:
+				pc += LuaGetArgSBx(i);
+				break;
+			case kOpReturn: {
+				if (LuaGetArgB(i) != 2) {
+					return false; // only `return x`
+				}
+				reinterpret_cast<std::uint32_t&>(proto->reserved8) += 1u; // luaD_precall's count
+				*func = *ra;                                               // luaD_poscall(L, 1, ra)
+				L->top = func + 1;
+				luaC_checkGC(L); // luaD_call's
+				return true;
+			}
+			default:
+				return false;
+			}
+		}
+		return false;
+	}
+} // namespace
 
 void moho::LUA_SetCallGate(const LuaCallGate gate) noexcept
 {

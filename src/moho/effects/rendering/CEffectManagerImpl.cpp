@@ -350,6 +350,22 @@ namespace moho
    * Initializes one effect-manager implementation object by binding the
    * owning `Sim` lane and self-linking both intrusive effect lists.
    */
+  namespace
+  {
+    // Engine addition (performance): the scripts' emitters create a script object, curves and params for
+    // each scorch, spark and muzzle flash; with nothing drawing particles they all share one live emitter
+    // instead. Effects carry no sim state -- whether one is created already depends on each machine's
+    // fidelity option, which multiplayer games do not share.
+    bool sim_EffectStandIn = true;
+    TConVar<bool> gTConVar_sim_EffectStandIn(
+      "sim_EffectStandIn",
+      "With nothing drawing particles, scripts' emitters share one live emitter (no per-effect objects).",
+      &sim_EffectStandIn
+    );
+    const CEffectManagerImpl* sStandInOwner = nullptr;
+    IEffect* sStandIn = nullptr;
+  } // namespace
+
   CEffectManagerImpl::CEffectManagerImpl(Sim* const sim)
     : mSim(sim)
     , mActiveEffects()
@@ -363,6 +379,10 @@ namespace moho
    */
   CEffectManagerImpl::~CEffectManagerImpl()
   {
+    if (sStandInOwner == this) {
+      sStandInOwner = nullptr; // the stand-in goes with the other active effects below
+      sStandIn = nullptr;
+    }
     if (sEffectOrder.mList == &mActiveEffects) {
       InvalidateEffectOrder();
     }
@@ -448,6 +468,28 @@ namespace moho
     }
 
     return effect;
+  }
+
+  IEffect* CEffectManagerImpl::LuaStandInEmitter(const char* const blueprintName)
+  {
+    if (!sim_EffectStandIn || !EFX_SkipParticleEmission()) {
+      return nullptr;
+    }
+    const REmitterBlueprint* const blueprint = LookupEmitterBlueprint(GetSim(), blueprintName);
+    if ((blueprintName != nullptr && blueprint == nullptr) ||
+        (blueprint != nullptr && !IsBlueprintEnabledForCurrentFidelity(blueprint))) {
+      return nullptr;
+    }
+    if (sStandInOwner != this || sStandIn == nullptr) {
+      CEffectImpl* const standIn = LinkActiveEffect(
+        mActiveEffects, new (std::nothrow) CEfxEmitter(this, Wm3::Vector3<float>(0.0f, 0.0f, 0.0f), -1, nullptr));
+      if (standIn == nullptr) {
+        return nullptr;
+      }
+      sStandInOwner = this;
+      sStandIn = standIn;
+    }
+    return sStandIn;
   }
 
   /**
@@ -590,6 +632,9 @@ namespace moho
   {
     if (effect == nullptr) {
       return;
+    }
+    if (effect == sStandIn && sStandInOwner == this) {
+      return; // sim_EffectStandIn: lives as long as the manager
     }
 
     // sim_ParallelEffects: inside a chunk the relink waits for the chunk's commit.

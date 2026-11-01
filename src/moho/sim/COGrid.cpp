@@ -466,7 +466,10 @@ namespace moho
       static_cast<std::int32_t>((static_cast<std::uint32_t>(mWidth) * static_cast<std::uint32_t>(mHeight)) - 1u);
 
     const std::size_t bucketCount = static_cast<std::size_t>(mLastIndex + 1);
-    const std::size_t bucketBytes = bucketCount * sizeof(void*);
+    // Engine addition (sim_GatherOccupancyBits): each array is followed by one bit per bucket, set while
+    // the bucket holds a node (AddColShapeAt / RemoveColShapeAt), so gathers can skip empty cells.
+    const std::size_t bucketBytes =
+      bucketCount * sizeof(void*) + ((bucketCount + 63u) / 64u) * sizeof(std::uint64_t);
 
     mUnitBuckets = static_cast<EntityCollisionCellNode**>(::operator new(bucketBytes));
     mPropBuckets = static_cast<EntityCollisionCellNode**>(::operator new(bucketBytes));
@@ -560,6 +563,20 @@ namespace moho
    * Chooses the bucket array for a shape's family bits: units, props, then
    * entities/projectiles; shared by `AddColShapeAt` and `RemoveColShapeAt`.
    */
+  /// The occupancy bits behind a bucket array (see the constructor).
+  [[nodiscard]] static inline std::uint64_t*
+  BucketOccupancyBits(EntityCollisionCellNode** const buckets, const std::int32_t lastIndex) noexcept
+  {
+    return reinterpret_cast<std::uint64_t*>(buckets + (static_cast<std::size_t>(lastIndex) + 1u));
+  }
+
+  bool sim_GatherOccupancyBits = true;
+  TConVar<bool> gTConVar_sim_GatherOccupancyBits(
+    "sim_GatherOccupancyBits",
+    "Grid rect gathers skip empty cells through a bit per bucket (same entities, same order).",
+    &sim_GatherOccupancyBits
+  );
+
   static EntityCollisionCellNode** SelectBucketArray(EntityOccupationManager& grid, const std::uint32_t bucketFlags) noexcept
   {
     if ((bucketFlags & 0x100u) != 0u) {
@@ -594,6 +611,8 @@ namespace moho
     EntityCollisionCellNode** const bucketHeads = SelectBucketArray(*this, shape->mBucketFlags);
     node->next = bucketHeads[bucketIndex];
     bucketHeads[bucketIndex] = node;
+    BucketOccupancyBits(bucketHeads, mLastIndex)[static_cast<std::uint32_t>(bucketIndex) >> 6] |=
+      std::uint64_t{1} << (static_cast<std::uint32_t>(bucketIndex) & 63u);
 
     --mFreeNodeCount;
   }
@@ -620,6 +639,10 @@ namespace moho
     }
 
     *link = node->next;
+    if (bucketHeads[bucketIndex] == nullptr) {
+      BucketOccupancyBits(bucketHeads, mLastIndex)[static_cast<std::uint32_t>(bucketIndex) >> 6] &=
+        ~(std::uint64_t{1} << (static_cast<std::uint32_t>(bucketIndex) & 63u));
+    }
     node->owner = nullptr;
     node->next = mFreeNodeHead;
     ++mFreeNodeCount;
@@ -768,6 +791,66 @@ namespace moho
     const bool useSharedMarks = !IsSimWorkerThread();
     if (!useSharedMarks) {
       tGatherVisits.Begin();
+    }
+
+    // Engine addition (sim_GatherOccupancyBits): when every in-range position is its own bucket (power-of-two
+    // grid), walk only the cells whose selected buckets hold nodes -- the same cells in the same order, each
+    // read as below.
+    const std::uint32_t gatherFlagBits = static_cast<std::uint32_t>(flags);
+    const bool gatherUnits = (gatherFlagBits & ENTITYTYPE_Unit) != 0u && unitBuckets != nullptr;
+    const bool gatherProps = (gatherFlagBits & ENTITYTYPE_Prop) != 0u && propBuckets != nullptr;
+    const bool gatherDynamic =
+      (gatherFlagBits & (ENTITYTYPE_Projectile | ENTITYTYPE_Entity)) != 0u && entityBuckets != nullptr;
+    const std::uint32_t bucketCount = static_cast<std::uint32_t>(mLastIndex) + 1u;
+    if (sim_GatherOccupancyBits && mGridWidthShift >= 0 && mWidth == (1 << mGridWidthShift) &&
+        (bucketCount & (bucketCount - 1u)) == 0u) {
+      const std::uint64_t* const unitBits = gatherUnits ? BucketOccupancyBits(unitBuckets, mLastIndex) : nullptr;
+      const std::uint64_t* const propBits = gatherProps ? BucketOccupancyBits(propBuckets, mLastIndex) : nullptr;
+      const std::uint64_t* const dynamicBits =
+        gatherDynamic ? BucketOccupancyBits(entityBuckets, mLastIndex) : nullptr;
+      for (; zCount > 0 && xCount > 0; --zCount, currentRowBase += mWidth) {
+        const int rowEnd = currentRowBase + xCount;
+        for (int position = currentRowBase; position < rowEnd;) {
+          const int word = position >> 6;
+          const int wordEnd = (word + 1) << 6;
+          std::uint64_t cells = (unitBits != nullptr ? unitBits[word] : 0u) |
+                                (propBits != nullptr ? propBits[word] : 0u) |
+                                (dynamicBits != nullptr ? dynamicBits[word] : 0u);
+          cells &= ~std::uint64_t{0} << (position & 63);
+          if (rowEnd < wordEnd) {
+            cells &= (std::uint64_t{1} << (rowEnd & 63)) - 1u;
+          }
+          while (cells != 0u) {
+            const int bucketIndex = (word << 6) + std::countr_zero(cells);
+            cells &= cells - 1u;
+            if (gatherUnits) {
+              for (EntityCollisionCellNode* node = unitBuckets[bucketIndex]; node; node = node->next) {
+                CollisionShapeBase* const shape = node->owner;
+                if (ClaimGatherShape(shape, useSharedMarks)) {
+                  outSpans.PushBack(shape);
+                }
+              }
+            }
+            if (gatherProps) {
+              for (EntityCollisionCellNode* node = propBuckets[bucketIndex]; node; node = node->next) {
+                CollisionShapeBase* const shape = node->owner;
+                if (ClaimGatherShape(shape, useSharedMarks)) {
+                  outSpans.PushBack(shape);
+                }
+              }
+            }
+            if (gatherDynamic) {
+              for (EntityCollisionCellNode* node = entityBuckets[bucketIndex]; node; node = node->next) {
+                CollisionShapeBase* const shape = node->owner;
+                if (((gatherFlagBits & shape->mBucketFlags) != 0u) && ClaimGatherShape(shape, useSharedMarks)) {
+                  outSpans.PushBack(shape);
+                }
+              }
+            }
+          }
+          position = wordEnd;
+        }
+      }
     }
 
     if (zCount > 0) {
