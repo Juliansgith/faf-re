@@ -191,4 +191,6 @@ namespace moho
     "CDecalBuffer::mPendingHideObjectIdsAux offset must be 0x0CEC"
   );
   static_assert(sizeof(CDecalBuffer) == 0xCF0, "CDecalBuffer size must be 0xCF0");
+  /// Engine addition (sim_DecalBuckets): drops a dying handle from CleanupTick's join-order table.
+  void DECAL_ForgetHandle(const CDecalHandle* handle);
 } // namespace moho

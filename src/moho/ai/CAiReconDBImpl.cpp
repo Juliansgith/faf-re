@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -78,8 +79,41 @@ namespace
   };
   std::unordered_map<const CAiReconDBImpl*, ReconBlipIndex> gReconBlipIndexes;
 
+  /**
+   * Engine addition (performance, `sim_ReconRangeCursor`): ReconTick walks the units in id order and
+   * the blip map is ordered by source id alone, so each unit's `equal_range` can continue from where
+   * the previous one ended instead of descending the tree twice. The cursor is used only while no
+   * change to this map since it was taken touched an id above the unit it was taken for (every
+   * insert and erase passes RefreshReconBlipIndex, a clear passes RECON_DropBlipIndex); otherwise the
+   * lookup is the tree's again. A unit's own entries (its UpdateBlips / DeleteBlips) lie at or below.
+   */
+  struct ReconRangeCursorGuard
+  {
+    const CAiReconDBImpl* mOwner = nullptr;
+    std::uint32_t mMaxTouchedId = 0u; // highest source id changed since the cursor was taken
+    bool mTouched = false;
+  };
+  ReconRangeCursorGuard gReconCursorGuard;
+
+  void NoteReconBlipMapChange(const CAiReconDBImpl* const owner, const std::uint32_t sourceEntityId) noexcept
+  {
+    if (gReconCursorGuard.mOwner == owner) {
+      gReconCursorGuard.mMaxTouchedId = gReconCursorGuard.mTouched
+        ? std::max(gReconCursorGuard.mMaxTouchedId, sourceEntityId) : sourceEntityId;
+      gReconCursorGuard.mTouched = true;
+    }
+  }
+
+  bool sim_ReconRangeCursor = true;
+  TConVar<bool> gTConVar_sim_ReconRangeCursor(
+    "sim_ReconRangeCursor",
+    "ReconTick finds each unit's blips by continuing a cursor through the id-ordered blip map (same ranges).",
+    &sim_ReconRangeCursor
+  );
+
   void RefreshReconBlipIndex(CAiReconDBImpl* const owner, const std::uint32_t sourceEntityId)
   {
+    NoteReconBlipMapChange(owner, sourceEntityId); // sim_ReconRangeCursor
     const auto index = gReconBlipIndexes.find(owner);
     if (index == gReconBlipIndexes.end()) {
       return;
@@ -773,6 +807,12 @@ void CAiReconDBImpl::ReconTick(const int dTicks)
 
   msvc8::vector<SNewBlip> pendingNewBlips{};
   std::size_t queryIndex = 0; // sim_ReconQueryCache: this unit's place among the queried ones
+  // sim_ReconRangeCursor: where the previous unit's range ended, valid while gReconCursorGuard
+  // saw no change above `cursorId`.
+  const bool useCursor = sim_ReconRangeCursor;
+  ReconBlipMap::iterator cursor = mBlipMap.begin();
+  std::uint32_t cursorId = 0u;
+  gReconCursorGuard = ReconRangeCursorGuard{this, 0u, false};
   if (mSim->mEntityDB) {
     // 0x005C104C: `CUnitIterAllArmies(Sim*)` walks only the unit-family prefix
     // of `mAllUnits`, in id order; blips, projectiles and props never enter.
@@ -798,7 +838,28 @@ void CAiReconDBImpl::ReconTick(const int dTicks)
       }
 
       const EReconFlags detectFlags = ReconTickQuery(this, unit, queryIndex++);
-      auto [rangeBegin, rangeEnd] = FindReconBlipRange(this, unit);
+      const std::uint32_t unitId = GetSourceEntityId(unit);
+      ReconBlipMap::iterator rangeBegin;
+      ReconBlipMap::iterator rangeEnd;
+      if (useCursor && unitId >= cursorId &&
+          !(gReconCursorGuard.mTouched && gReconCursorGuard.mMaxTouchedId > cursorId)) {
+        const ReconBlipMap::iterator mapEnd = mBlipMap.end();
+        while (cursor != mapEnd && cursor->first.sourceEntityId < unitId) {
+          ++cursor;
+        }
+        rangeBegin = cursor;
+        rangeEnd = cursor;
+        while (rangeEnd != mapEnd && rangeEnd->first.sourceEntityId == unitId) {
+          ++rangeEnd;
+        }
+      } else {
+        std::tie(rangeBegin, rangeEnd) = FindReconBlipRange(this, unit);
+      }
+      // The next unit continues from this range's end: entries above unitId this unit's own
+      // updates cannot touch; anything else that does sends the next lookup to the tree.
+      cursor = rangeEnd;
+      cursorId = unitId;
+      gReconCursorGuard = ReconRangeCursorGuard{this, 0u, false};
       if (detectFlags != RECON_None) {
         if (rangeBegin == rangeEnd) {
           AppendPendingNewBlip(pendingNewBlips, unit, 0u, detectFlags);
@@ -2169,6 +2230,7 @@ namespace moho
 void moho::RECON_DropBlipIndex(const CAiReconDBImpl* const db)
 {
   gReconBlipIndexes.erase(db);
+  NoteReconBlipMapChange(db, std::numeric_limits<std::uint32_t>::max()); // a clear or load: no cursor
 }
 
 namespace

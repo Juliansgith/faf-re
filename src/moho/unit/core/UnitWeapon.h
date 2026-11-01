@@ -138,7 +138,7 @@ namespace moho
   static_assert(offsetof(CollisionBeamHelper, mLine) == 0x3C, "CollisionBeamHelper::mLine offset must be 0x3C");
   static_assert(offsetof(CollisionBeamHelper, mLineScale) == 0x54, "CollisionBeamHelper::mLineScale offset must be 0x54");
 
-  class UnitWeapon : public CScriptEvent
+  class UnitWeapon final : public CScriptEvent
   {
   public:
     static gpg::RType* sType;

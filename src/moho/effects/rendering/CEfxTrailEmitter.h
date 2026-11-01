@@ -28,7 +28,7 @@ namespace moho
    * - `ProcessLifetime` reads `mTrailLength` at +0x194 and `mTotalTicks` at
    *   +0x198.
    */
-  class CEfxTrailEmitter : public CEffectImpl
+  class CEfxTrailEmitter final : public CEffectImpl
   {
   public:
     static gpg::RType* sType;

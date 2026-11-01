@@ -14,7 +14,7 @@ namespace moho
   struct RBeamBlueprint;
   struct SCreateBeamParams;
 
-  class CEfxBeam : public CEffectImpl
+  class CEfxBeam final : public CEffectImpl
   {
   public:
     static gpg::RType* sType;

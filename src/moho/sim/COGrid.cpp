@@ -1222,6 +1222,90 @@ namespace moho
     }
   }
 
+  namespace
+  {
+    bool sim_BoxSweepCull = true;
+    TConVar<bool> gTConVar_sim_BoxSweepCull(
+      "sim_BoxSweepCull",
+      "Patrol reclaim sweeps drop candidates whose cached bounds lie clearly outside the oriented search box "
+      "before the exact box test (same entities).",
+      &sim_BoxSweepCull
+    );
+
+    /// True when `aabb` lies clearly outside `box` along one of the box's own axes. Conservative: a margin
+    /// keeps a touching or rounding-close candidate for the exact test.
+    [[nodiscard]] bool OrientedBoxSeparatesBounds(const Wm3::Box3f& box, const Wm3::AxisAlignedBox3f& aabb) noexcept
+    {
+      const float cx = (aabb.Min.x + aabb.Max.x) * 0.5f - box.Center.x;
+      const float cy = (aabb.Min.y + aabb.Max.y) * 0.5f - box.Center.y;
+      const float cz = (aabb.Min.z + aabb.Max.z) * 0.5f - box.Center.z;
+      const float hx = (aabb.Max.x - aabb.Min.x) * 0.5f;
+      const float hy = (aabb.Max.y - aabb.Min.y) * 0.5f;
+      const float hz = (aabb.Max.z - aabb.Min.z) * 0.5f;
+      if (!(hx >= 0.0f) || !(hy >= 0.0f) || !(hz >= 0.0f)) {
+        return false; // empty or NaN bounds: let the exact test decide
+      }
+      for (int i = 0; i < 3; ++i) {
+        const Wm3::Vector3f& axis = box.Axis[i];
+        const float length = std::sqrt(axis.x * axis.x + axis.y * axis.y + axis.z * axis.z);
+        if (!(length > 1e-6f)) {
+          return false;
+        }
+        const float ax = axis.x / length;
+        const float ay = axis.y / length;
+        const float az = axis.z / length;
+        const float distance = std::fabs(cx * ax + cy * ay + cz * az);
+        const float reach = box.Extent[i] + hx * std::fabs(ax) + hy * std::fabs(ay) + hz * std::fabs(az);
+        if (distance > reach * 1.001f + 0.05f) {
+          return true;
+        }
+      }
+      return false;
+    }
+  } // namespace
+
+  void COGrid::CollectEntitiesInBoxEntities(
+    gpg::core::FastVectorN<CollisionResult, 10>& outCollisions,
+    const EEntityType flags,
+    const Wm3::Box3f& box
+  )
+  {
+    if (!sim_BoxSweepCull) {
+      CollectEntitiesInBox(outCollisions, flags, box);
+      return;
+    }
+    const Wm3::AxisAlignedBox3f queryBounds = BuildAxisAlignedBoundsFromOrientedBox(box);
+
+    GatherScratch<Entity*, kGatherInlineCapacity, kGatherBinaryCapacity> gatherScratch{};
+    gpg::core::FastVectorInline<Entity*>& gatheredEntities = gatherScratch.Get();
+    const int gatheredCount = GatherUnmarkedEntities(queryBounds, flags, gatheredEntities);
+
+    outCollisions.ResetStorageToInline();
+
+    CollisionResult collisionResult{};
+    for (int index = 0; index < gatheredCount; ++index) {
+      Entity* const candidate = gatheredEntities.start_[index];
+      if (candidate == nullptr || !AxisAlignedBoundsOverlapEntityBounds(queryBounds, *candidate)) {
+        continue;
+      }
+      if (OrientedBoxSeparatesBounds(box, candidate->mAABox)) {
+        continue; // clearly outside the rotated box: the exact test would miss
+      }
+
+      CColPrimitiveBase* const collisionPrimitive = candidate->CollisionExtents;
+      if (collisionPrimitive == nullptr) {
+        continue;
+      }
+
+      if (!collisionPrimitive->CollideBox(&box, &collisionResult)) {
+        continue;
+      }
+
+      collisionResult.sourceEntity = candidate;
+      outCollisions.PushBack(collisionResult);
+    }
+  }
+
   /**
    * Address: 0x00721C00 (FUN_00721C00, Moho::func_GatherUnmarkedUnitsInBox)
    *

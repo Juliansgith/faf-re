@@ -35,7 +35,7 @@ namespace moho
    * Primary projectile runtime entity. Current recovered layout keeps RTTI and
    * serializer-visible lanes while preserving full binary size.
    */
-  class Projectile : public Entity, public InstanceCounter<Projectile>
+  class Projectile final : public Entity, public InstanceCounter<Projectile>
   {
   private:
     /**

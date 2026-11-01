@@ -157,7 +157,7 @@ namespace moho
    * VFTABLE: 0x00E1D824
    * COL:  0x00E743E8
    */
-  class ReconBlip : public Entity, public InstanceCounter<ReconBlip>
+  class ReconBlip final : public Entity, public InstanceCounter<ReconBlip>
   {
   public:
     /**

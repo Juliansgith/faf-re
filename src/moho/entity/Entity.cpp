@@ -1108,6 +1108,10 @@ namespace
     return (static_cast<std::uint8_t>(caps) & bit) != 0u;
   }
 
+  /// Engine addition (sim_PatrolPropCache): set while `AdvanceCoordsOwn` runs, possibly on a sim worker;
+  /// `AdvanceCoordsShared` then records the prop on the sim thread instead.
+  thread_local bool tPropNotesHeld = false;
+
   void RefreshCollisionBoundsSnapshot(moho::Entity& entity)
   {
     entity.UpdateAABox();
@@ -3647,7 +3651,11 @@ namespace moho
       return;
     }
 
+    const Wm3::AxisAlignedBox3f priorBounds = mAABox;
     mAABox = CollisionExtents->GetBoundingBox();
+    if (!tPropNotesHeld && IsProp() != nullptr) {
+      PROP_NoteChanged(this, priorBounds); // engine addition, sim_PatrolPropCache
+    }
   }
 
   /**
@@ -4169,7 +4177,10 @@ namespace moho
         (mVarDat.mLastTransform.pos_ != mVarDat.mCurTransform.pos_ ||
          mVarDat.mLastTransform.orient_ != mVarDat.mCurTransform.orient_)) {
       CollisionShapeBase::SetDeferredRelinkSlot(&relink);
+      tPropNotesHeld = true;
+      relink.priorBounds = mAABox;
       UpdateCollision();
+      tPropNotesHeld = false;
       CollisionShapeBase::SetDeferredRelinkSlot(nullptr);
     }
   }
@@ -4177,6 +4188,12 @@ namespace moho
   void Entity::AdvanceCoordsShared(const CollisionShapeBase::DeferredRelink& relink)
   {
     CollisionShapeBase::ApplyDeferredRelink(relink);
+    if (CollisionExtents &&
+        (mVarDat.mLastTransform.pos_ != mVarDat.mCurTransform.pos_ ||
+         mVarDat.mLastTransform.orient_ != mVarDat.mCurTransform.orient_) &&
+        IsProp() != nullptr) {
+      PROP_NoteChanged(this, relink.priorBounds); // engine addition, sim_PatrolPropCache (held back in AdvanceCoordsOwn)
+    }
 
     if (mIntelManager && SimulationRef) {
       const Wm3::Vec3f& position = mVarDat.mCurTransform.pos_;

@@ -71,7 +71,7 @@ namespace moho
    * - Parent/attach ownership is inherited from `Entity::mAttachInfo`
    *   (`SEntAttachInfo` + `WeakPtr<Entity>` intrusive owner chain).
    */
-  class Prop : public Entity, public InstanceCounter<Prop>
+  class Prop final : public Entity, public InstanceCounter<Prop>
   {
   public:
     static gpg::RType* sType;
@@ -256,4 +256,8 @@ namespace moho
    * game rules, and creates the prop at the given transform (defined in Sim.cpp).
    */
   Prop* PROP_Create(Sim* sim, const VTransform& transform, const char* blueprintId);
+
+  /// Engine addition (sim_PatrolPropCache): records a prop just created or whose bounds changed, so cached
+  /// patrol sweeps re-test it.
+  void PROP_NoteChanged(Entity* prop, const Wm3::AxisAlignedBox3f& priorBounds);
 } // namespace moho

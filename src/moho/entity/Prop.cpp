@@ -482,6 +482,7 @@ namespace moho
         sim->mOGrid->ExecuteOccupy(origin, blueprint->mFootprint);
       }
     }
+    PROP_NoteChanged(this, mAABox); // engine addition, sim_PatrolPropCache
   }
 
   /**

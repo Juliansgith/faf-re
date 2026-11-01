@@ -339,6 +339,20 @@ namespace moho
     );
 
     /**
+     * Engine addition (performance, `sim_BoxSweepCull`): CollectEntitiesInBox for callers that read only
+     * `sourceEntity` from the hits (the patrol reclaim sweep). Before the exact CollideBox, each
+     * candidate's cached AABB is tested against the box's own three axes and dropped when it lies clearly
+     * outside -- a long, rotated patrol leg spans an axis-aligned cell range many times its area. The same
+     * entities come back in the same order; only the retained-lane contents of the results may differ,
+     * which this caller never reads.
+     */
+    void CollectEntitiesInBoxEntities(
+      gpg::core::FastVectorN<CollisionResult, 10>& outCollisions,
+      EEntityType flags,
+      const Wm3::Box3f& box
+    );
+
+    /**
      * Address: 0x00721FB0 (FUN_00721FB0, Moho::COGrid::ForAllEntitiesIterator)
      *
      * What it does:

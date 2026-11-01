@@ -126,6 +126,7 @@ namespace moho
     {
       CollisionShapeBase* shape = nullptr;
       CollisionDBRect rect{};
+      Wm3::AxisAlignedBox3f priorBounds{}; // the entity's bounds before the update (sim_PatrolPropCache)
     };
 
     static void SetDeferredRelinkSlot(DeferredRelink* slot) noexcept;

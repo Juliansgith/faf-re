@@ -1,4 +1,5 @@
 #include "moho/render/CDecalHandle.h"
+#include "moho/render/CDecalBuffer.h"
 
 #include <Windows.h>
 
@@ -287,7 +288,10 @@ namespace moho
    * Address: 0x00778B40 (FUN_00778B40, Moho::CDecalHandle::dtr)
    * Address: 0x00778C10 (FUN_00778C10, Moho::CDecalHandle::~CDecalHandle body)
    */
-  CDecalHandle::~CDecalHandle() = default;
+  CDecalHandle::~CDecalHandle()
+  {
+    DECAL_ForgetHandle(this); // engine addition, sim_DecalBuckets
+  }
 
   CDecalHandle* CDecalHandle::FromListNode(CDecalHandleListNode* const node) noexcept
   {

@@ -1,7 +1,14 @@
 #include "moho/unit/tasks/CUnitPatrolTask.h"
 #include "moho/unit/tasks/CUnitPatrolTaskTypeInfo.h"
 
+#include <algorithm>
 #include <cmath>
+#include <iterator>
+#include <cstring>
+#include <deque>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -24,6 +31,9 @@
 #include "moho/ai/IFormationInstanceCountedPtrReflection.h"
 #include "moho/ai/IAiNavigator.h"
 #include "moho/collision/CColPrimitiveBase.h"
+#include "moho/console/CConCommand.h"
+#include "gpg/core/utils/Logging.h"
+#include "moho/math/Wm3AxisAlignedBox3FafExtras.h"
 #include "moho/entity/EntityDb.h"
 #include "moho/entity/Prop.h"
 #include "moho/math/QuaternionMath.h"
@@ -169,6 +179,189 @@ namespace
     return slot.GetObjectPtr();
   }
 } // namespace
+
+namespace
+{
+  /**
+   * Engine addition (performance, `sim_PatrolPropCache`). The patrol reclaim sweep searched its leg's
+   * oriented box for units AND props every tick -- in an AI game a quarter of the sim thread, since the box
+   * covers a whole patrol leg and a map holds ~12k props. Props rarely move and the box only changes with
+   * the leg, so each task keeps the props its box held when the box was set (weak pointers: a destroyed
+   * prop drops out by itself) and only searches the box for units every tick. Props created or moved since
+   * (falling and sinking trees, mostly) come from a log `PROP_NoteChanged` keeps, one live entry per prop,
+   * and are re-tested against the box. Same candidates as the binary's search; a tie in weighted distance,
+   * which the binary breaks by grid order, redoes the tick from that search (`EvaluatePatrolReclaimAttack`).
+   */
+  bool sim_PatrolPropCacheCheck = false;
+  moho::TConVar<bool> gTConVar_sim_PatrolPropCacheCheck(
+    "sim_PatrolPropCacheCheck", "Compare sim_PatrolPropCache's candidates with the full search and log differences (slow).",
+    &sim_PatrolPropCacheCheck
+  );
+  bool sim_PatrolPropCache = true;
+  moho::TConVar<bool> gTConVar_sim_PatrolPropCache(
+    "sim_PatrolPropCache",
+    "Patrol reclaim sweeps keep the props of their search box and only search it for units every tick.",
+    &sim_PatrolPropCache
+  );
+
+  struct SPropLogEntry
+  {
+    std::uint64_t mSeq;
+    moho::WeakPtr<moho::Entity> mProp;   // empty once the prop has a newer entry
+    Wm3::AxisAlignedBox3f mPriorBounds; // covers the prop's bounds before every change since its previous entry
+  };
+  std::deque<SPropLogEntry> sPropLog; // oldest first; deque elements stay put, which the weak links need
+  std::unordered_map<const moho::Entity*, std::uint64_t> sPropLogLatest; // prop -> seq of its live entry
+  std::uint64_t sPropLogNext = 1u;
+  constexpr std::size_t kPropLogMax = 1u << 15;
+
+  struct SCachedProp
+  {
+    moho::WeakPtr<moho::Entity> mProp;
+    const moho::Entity* mKey; // the address `mMembers` holds, kept for when `mProp` has gone empty
+  };
+
+  struct SPatrolPropCache
+  {
+    Wm3::Box3f mBox{};
+    std::uint64_t mSeenSeq = 0u; // 0: never built
+    std::vector<SCachedProp> mProps;
+    std::unordered_set<const moho::Entity*> mMembers; // the live props of `mProps`
+  };
+  std::unordered_map<const moho::CUnitPatrolTask*, SPatrolPropCache> sPatrolCaches;
+
+  [[nodiscard]] bool BoundsOverlap(const Wm3::AxisAlignedBox3f& a, const Wm3::AxisAlignedBox3f& b) noexcept
+  {
+    return !(a.Min.x > b.Max.x) && !(b.Min.x > a.Max.x) && !(a.Min.y > b.Max.y) && !(b.Min.y > a.Max.y) &&
+           !(a.Min.z > b.Max.z) && !(b.Min.z > a.Max.z);
+  }
+
+  [[nodiscard]] Wm3::AxisAlignedBox3f BoundsUnion(const Wm3::AxisAlignedBox3f& a, const Wm3::AxisAlignedBox3f& b) noexcept
+  {
+    Wm3::AxisAlignedBox3f out = a;
+    out.Min.x = std::min(a.Min.x, b.Min.x);
+    out.Min.y = std::min(a.Min.y, b.Min.y);
+    out.Min.z = std::min(a.Min.z, b.Min.z);
+    out.Max.x = std::max(a.Max.x, b.Max.x);
+    out.Max.y = std::max(a.Max.y, b.Max.y);
+    out.Max.z = std::max(a.Max.z, b.Max.z);
+    return out;
+  }
+
+  void RebuildPatrolPropCache(SPatrolPropCache& cache, moho::COGrid& grid, const Wm3::Box3f& box)
+  {
+    using namespace moho;
+    gpg::core::FastVectorN<CollisionResult, 10> hits;
+    grid.CollectEntitiesInBoxEntities(hits, ENTITYTYPE_Prop, box);
+    cache.mProps.clear();
+    cache.mMembers.clear();
+    for (const CollisionResult& hit : hits) {
+      if (cache.mMembers.insert(hit.sourceEntity).second) {
+        cache.mProps.push_back(SCachedProp{WeakPtr<Entity>(hit.sourceEntity), hit.sourceEntity});
+      }
+    }
+    cache.mBox = box;
+    cache.mSeenSeq = sPropLogNext;
+  }
+
+  /// Brings the cache up to the props created or moved since it last looked.
+  void CatchUpPatrolPropCache(SPatrolPropCache& cache, const Wm3::Box3f& box, const Wm3::AxisAlignedBox3f& queryBounds)
+  {
+    using namespace moho;
+    // Destroyed props first, so no address in `mMembers` can belong to a prop allocated since.
+    std::erase_if(cache.mProps, [&cache](const SCachedProp& cached) {
+      if (cached.mProp.GetObjectPtr() != nullptr) {
+        return false;
+      }
+      cache.mMembers.erase(cached.mKey);
+      return true;
+    });
+    const std::uint64_t logFirst = sPropLog.front().mSeq;
+    for (std::size_t i = static_cast<std::size_t>(cache.mSeenSeq - logFirst); i < sPropLog.size(); ++i) {
+      const SPropLogEntry& entry = sPropLog[i];
+      Entity* const prop = entry.mProp.GetObjectPtr();
+      if (prop == nullptr) {
+        continue; // superseded by a later entry, or destroyed
+      }
+      const bool nearNow = prop->CollisionExtents != nullptr && BoundsOverlap(queryBounds, prop->mAABox);
+      if (!nearNow && !BoundsOverlap(queryBounds, entry.mPriorBounds)) {
+        continue; // outside the box before and after: never cached here
+      }
+      bool inside = false;
+      if (nearNow) {
+        CollisionResult collision{};
+        inside = prop->CollisionExtents->CollideBox(&box, &collision);
+      }
+      if (inside) {
+        if (cache.mMembers.insert(prop).second) {
+          cache.mProps.push_back(SCachedProp{WeakPtr<Entity>(prop), prop});
+        }
+      } else if (cache.mMembers.erase(prop) != 0u) {
+        std::erase_if(cache.mProps, [prop](const SCachedProp& cached) { return cached.mKey == prop; });
+      }
+    }
+    cache.mSeenSeq = sPropLogNext;
+  }
+
+  /// The sweep's candidates for `box`: the cached props (none when `withProps` is false), then the units
+  /// the box holds this tick.
+  void GatherPatrolCandidates(
+    const moho::CUnitPatrolTask* const task,
+    moho::COGrid& grid,
+    const Wm3::Box3f& box,
+    const bool withProps,
+    std::vector<moho::Entity*>& out
+  )
+  {
+    using namespace moho;
+    out.clear();
+    if (withProps) {
+      const Wm3::AxisAlignedBox3f queryBounds = AxisAlignedBoundsFromBox(box);
+      SPatrolPropCache& cache = sPatrolCaches[task];
+      const std::uint64_t logFirst = sPropLog.empty() ? sPropLogNext : sPropLog.front().mSeq;
+      if (cache.mSeenSeq == 0u || cache.mSeenSeq < logFirst || std::memcmp(&cache.mBox, &box, sizeof(box)) != 0) {
+        RebuildPatrolPropCache(cache, grid, box);
+      } else if (cache.mSeenSeq < sPropLogNext) {
+        CatchUpPatrolPropCache(cache, box, queryBounds);
+      }
+      for (const SCachedProp& cached : cache.mProps) {
+        Entity* const prop = cached.mProp.GetObjectPtr();
+        if (prop != nullptr && prop->CollisionExtents != nullptr && BoundsOverlap(queryBounds, prop->mAABox)) {
+          out.push_back(prop);
+        }
+      }
+    }
+    gpg::core::FastVectorN<CollisionResult, 10> unitHits;
+    grid.CollectEntitiesInBoxEntities(unitHits, ENTITYTYPE_Unit, box);
+    for (const CollisionResult& hit : unitHits) {
+      out.push_back(hit.sourceEntity);
+    }
+  }
+} // namespace
+
+void moho::PROP_NoteChanged(Entity* const prop, const Wm3::AxisAlignedBox3f& priorBounds)
+{
+  if (prop == nullptr || !sim_PatrolPropCache) {
+    return;
+  }
+  // One live entry per prop: an earlier one goes empty, and its prior bounds carry over, since a cache that
+  // has not read it yet decided on the prop with those bounds.
+  Wm3::AxisAlignedBox3f prior = priorBounds;
+  const auto latest = sPropLogLatest.find(prop);
+  if (latest != sPropLogLatest.end() && !sPropLog.empty() && latest->second >= sPropLog.front().mSeq) {
+    SPropLogEntry& previous = sPropLog[static_cast<std::size_t>(latest->second - sPropLog.front().mSeq)];
+    if (previous.mProp.GetObjectPtr() == prop) {
+      prior = BoundsUnion(prior, previous.mPriorBounds);
+      previous.mProp = WeakPtr<Entity>();
+    }
+  }
+  sPropLogLatest[prop] = sPropLogNext;
+  sPropLog.push_back(SPropLogEntry{sPropLogNext++, WeakPtr<Entity>(prop), prior});
+  while (sPropLog.size() > kPropLogMax) {
+    sPropLog.pop_front(); // a cache older than the log's front rebuilds
+  }
+}
+
 
 namespace moho
 {
@@ -338,6 +531,7 @@ namespace moho
    */
   CUnitPatrolTask::~CUnitPatrolTask()
   {
+    sPatrolCaches.erase(this); // engine addition, sim_PatrolPropCache
     // (1) Unconditionally unlink the command-event listener lane
     // (0x0061B17A: splice prev/next, then self-relink the node).
     Listener<ECommandEvent>::ListUnlink();
@@ -587,18 +781,65 @@ namespace moho
 
     gpg::core::FastVectorN<CollisionResult, 10> collisions;
     Sim* const sim = unit->SimulationRef;
-    sim->mOGrid->CollectEntitiesInBox(
-      collisions,
-      static_cast<EEntityType>(ENTITYTYPE_Unit | ENTITYTYPE_Prop),
-      mSearchBox
-    );
+    // sim_PatrolPropCache: the cached props of the box plus this tick's units (GatherPatrolCandidates);
+    // otherwise the binary's one search for both. Only `sourceEntity` is read below.
+    static std::vector<Entity*> sCandidates;
+    // Props pass the prop branch only for a unit that can reclaim, so a sweep for one that cannot
+    // looks for units alone (the binary tests this per candidate).
+    const bool canReclaim = unit->IsInCategory("RECLAIM");
+    if (sim_PatrolPropCache) {
+      GatherPatrolCandidates(this, *sim->mOGrid, mSearchBox, canReclaim, sCandidates);
+      if (sim_PatrolPropCacheCheck) {
+        // compare with the binary's search, as sets
+        gpg::core::FastVectorN<CollisionResult, 10> reference;
+        sim->mOGrid->CollectEntitiesInBox(reference, static_cast<EEntityType>(ENTITYTYPE_Unit | ENTITYTYPE_Prop), mSearchBox);
+        std::vector<Entity*> want;
+        for (const CollisionResult& hit : reference) { want.push_back(hit.sourceEntity); }
+        std::vector<Entity*> have(sCandidates);
+        std::sort(want.begin(), want.end());
+        std::sort(have.begin(), have.end());
+        if (want != have) {
+          static int sReports = 0;
+          if (sReports++ < 40) {
+            std::vector<Entity*> missing, extra;
+            std::set_difference(want.begin(), want.end(), have.begin(), have.end(), std::back_inserter(missing));
+            std::set_difference(have.begin(), have.end(), want.begin(), want.end(), std::back_inserter(extra));
+            gpg::Logf("PATROLCHECK tick %u task %p: want %zu have %zu missing %zu extra %zu", static_cast<unsigned>(sim->mCurTick),
+                      static_cast<const void*>(this), want.size(), have.size(), missing.size(), extra.size());
+            for (Entity* e : missing) {
+              gpg::Logf("  missing id 0x%08x unit=%d prop=%d pos %.2f %.2f %.2f last %.2f %.2f %.2f", static_cast<unsigned>(e->id_),
+                        e->IsUnit() != nullptr, e->IsProp() != nullptr, e->mVarDat.mCurTransform.pos_.x, e->mVarDat.mCurTransform.pos_.y,
+                        e->mVarDat.mCurTransform.pos_.z, e->mVarDat.mLastTransform.pos_.x, e->mVarDat.mLastTransform.pos_.y,
+                        e->mVarDat.mLastTransform.pos_.z);
+            }
+            for (Entity* e : extra) {
+              gpg::Logf("  extra id 0x%08x unit=%d prop=%d pos %.2f %.2f %.2f", static_cast<unsigned>(e->id_), e->IsUnit() != nullptr,
+                        e->IsProp() != nullptr, e->mVarDat.mCurTransform.pos_.x, e->mVarDat.mCurTransform.pos_.y, e->mVarDat.mCurTransform.pos_.z);
+            }
+          }
+        }
+      }
+    } else {
+      sim->mOGrid->CollectEntitiesInBoxEntities(
+        collisions,
+        static_cast<EEntityType>(ENTITYTYPE_Unit | ENTITYTYPE_Prop),
+        mSearchBox
+      );
+      sCandidates.clear();
+      for (const CollisionResult& hit : collisions) {
+        sCandidates.push_back(hit.sourceEntity);
+      }
+    }
 
+    bool fromCache = sim_PatrolPropCache;
+  rescan:
     Entity* bestCandidate = nullptr;
     float bestWeightedDistanceSq = gpg::pInf;
+    bool bestTied = false;
 
-    const std::ptrdiff_t count = collisions.end() - collisions.begin();
+    const std::ptrdiff_t count = static_cast<std::ptrdiff_t>(sCandidates.size());
     for (std::ptrdiff_t i = 0; i < count; ++i) {
-      Entity* const candidate = collisions.begin()[i].sourceEntity;
+      Entity* const candidate = sCandidates[static_cast<std::size_t>(i)];
       // Both type tests run for every candidate, in this order: Entity vtable
       // +0x10 `IsUnit` at 0x0061BCF1, +0x14 `IsProp` at 0x0061BD05.
       Unit* const candidateUnit = candidate->IsUnit();
@@ -622,7 +863,7 @@ namespace moho
         if (candidateProp == nullptr) {
           continue;
         }
-        if (!unit->IsInCategory("RECLAIM")) {
+        if (!canReclaim) {
           continue;
         }
         if (!candidateProp->IsInCategory("RECLAIMABLE")) {
@@ -704,9 +945,27 @@ namespace moho
       if (bestWeightedDistanceSq > weightedDistanceSq) {
         bestWeightedDistanceSq = weightedDistanceSq;
         bestCandidate = candidate;
+        bestTied = false;
+      } else if (bestCandidate != nullptr && bestWeightedDistanceSq == weightedDistanceSq) {
+        bestTied = true;
       }
     }
 
+    if (bestTied && fromCache) {
+      // The binary takes the first of equally near candidates in grid order, which the cache does not
+      // keep: redo this tick from the binary's search.
+      sim->mOGrid->CollectEntitiesInBoxEntities(
+        collisions,
+        static_cast<EEntityType>(ENTITYTYPE_Unit | ENTITYTYPE_Prop),
+        mSearchBox
+      );
+      sCandidates.clear();
+      for (const CollisionResult& hit : collisions) {
+        sCandidates.push_back(hit.sourceEntity);
+      }
+      fromCache = false;
+      goto rescan;
+    }
     return bestCandidate;
   }
 

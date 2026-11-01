@@ -59,7 +59,7 @@ namespace moho
    * `CScriptObject` ctor is called at 0x005D69D4), and the destructor ends in
    * both base destructors (0x005D6CF0, 0x005D6CF5).
    */
-  class CAiAttackerImpl : public IAiAttacker, public CScriptObject
+  class CAiAttackerImpl final : public IAiAttacker, public CScriptObject
   {
   public:
     /**

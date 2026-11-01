@@ -8,7 +8,9 @@
 #include <new>
 #include <stdexcept>
 #include <typeinfo>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "gpg/core/containers/ReadArchive.h"
 #include "gpg/core/containers/Rect2.h"
@@ -37,27 +39,22 @@ namespace
     &sim_DecalVisibility
   );
 
-  // Engine addition (performance): a lower bound on the earliest non-zero start tick among one
-  // buffer's handles, so CleanupTick's expiry walk over every decal runs only on ticks where a handle
-  // can expire. Kept by CreateHandle and recomputed by each walk; a handle destroyed another way leaves
-  // it low, which only costs one walk. `known` false (loaded handles, another buffer) forces a walk.
-  struct SDecalExpiryHint
-  {
-    const CDecalBuffer* mBuffer = nullptr;
-    bool mKnown = false;
-    std::uint32_t mEarliest = 0u; // UINT32_MAX: no handle expires
-  };
-  SDecalExpiryHint sDecalExpiryHint;
+  // Engine addition (performance, sim_DecalBuckets): CleanupTick expires handles from the start-tick
+  // buckets instead of walking every decal each tick (decals expire on most ticks of a battle, so a walk
+  // ran on most ticks). The due handles are destroyed in list order -- handles only ever join the list at
+  // its tail (CreateHandle, ReadDecalHandles), so the order they joined in, kept here, is list order.
+  bool sim_DecalBuckets = true;
+  moho::TConVar<bool> gTConVar_sim_DecalBuckets(
+    "sim_DecalBuckets",
+    "Expire decals from their start-tick buckets, in list order, instead of walking every decal (same order).",
+    &sim_DecalBuckets
+  );
+  std::unordered_map<const CDecalHandle*, std::uint64_t> sDecalJoinOrder; // live handles -> join order
+  std::uint64_t sNextDecalJoin = 0u;
 
-  void NoteDecalStartTick(const CDecalBuffer* const buffer, const std::uint32_t startTick) noexcept
+  void NoteDecalJoined(const CDecalHandle* const handle)
   {
-    if (sDecalExpiryHint.mBuffer != buffer) {
-      sDecalExpiryHint = SDecalExpiryHint{buffer, false, 0u};
-      return;
-    }
-    if (startTick != 0u && startTick < sDecalExpiryHint.mEarliest) {
-      sDecalExpiryHint.mEarliest = startTick;
-    }
+    sDecalJoinOrder[handle] = ++sNextDecalJoin;
   }
 } // namespace
 
@@ -172,6 +169,7 @@ CDecalBuffer::~CDecalBuffer()
   while (mHandleListHead.mNext != listHeadNode) {
     CDecalHandleListNode* const node = mHandleListHead.mNext;
     CDecalHandle* const handle = CDecalHandle::FromListNode(node);
+    sDecalJoinOrder.erase(handle);
     delete handle;
   }
 
@@ -179,9 +177,6 @@ CDecalBuffer::~CDecalBuffer()
   // open-codes that teardown, including freeing the sentinel head, which is
   // the container's destructor here.
   mStartTickBuckets.clear();
-  if (sDecalExpiryHint.mBuffer == this) {
-    sDecalExpiryHint = SDecalExpiryHint{}; // a later buffer at this address starts unknown
-  }
 }
 
 /**
@@ -226,7 +221,13 @@ CDecalHandle* CDecalBuffer::CreateHandle(const SDecalInfo& info)
   if (handle->mInfo.mStartTick != 0u) {
     mStartTickBuckets[handle->mInfo.mStartTick].insert(handle);
   }
-  NoteDecalStartTick(this, handle->mInfo.mStartTick);
+  NoteDecalJoined(handle);
+
+  // sim_DecalVisibility 0 / training (engine addition, performance): the per-army visibility flags only
+  // feed CleanupTick's visibility pass, which then never runs.
+  if (!sim_DecalVisibility || AGENT_TrainingMode()) {
+    return handle;
+  }
 
   CArmyImpl** const armiesBegin = mSim->mArmiesList.begin();
   CArmyImpl** const armiesEnd = mSim->mArmiesList.end();
@@ -300,9 +301,7 @@ void CDecalBuffer::ReadDecalHandles(gpg::ReadArchive* const ar)
     if (handle->mInfo.mStartTick != 0u) {
       mStartTickBuckets[handle->mInfo.mStartTick].insert(handle);
     }
-    if (sDecalExpiryHint.mBuffer == this) {
-      sDecalExpiryHint.mKnown = false; // the next CleanupTick walks and recomputes
-    }
+    NoteDecalJoined(handle);
   }
 }
 
@@ -337,6 +336,7 @@ void CDecalBuffer::DestroyHandle(CDecalHandle* const handleOpaque)
 
   mPool.QueueReleasedLowId(handleOpaque->mInfo.mObj);
 
+  sDecalJoinOrder.erase(handleOpaque);
   delete handleOpaque;
 }
 
@@ -428,24 +428,41 @@ void CDecalBuffer::CleanupTick()
 
   const std::uint32_t curTick = mSim->mCurTick;
 
-  // Pass 1: expire handles whose start tick has elapsed (skipped while none can: sDecalExpiryHint).
+  // Pass 1: expire handles whose start tick has elapsed.
   const auto* const listHeadNode = static_cast<const CDecalHandleListNode*>(&mHandleListHead);
-  const bool canSkip = sDecalExpiryHint.mBuffer == this && sDecalExpiryHint.mKnown &&
-                       curTick < sDecalExpiryHint.mEarliest;
-  if (!canSkip) {
-    std::uint32_t earliest = std::numeric_limits<std::uint32_t>::max();
+  if (sim_DecalBuckets) {
+    // Every live handle with a start tick sits in its bucket (CreateHandle / ReadDecalHandles put it
+    // there; DestroyHandle takes it out), so the due ones are the buckets up to now. Destroyed in the
+    // order they joined the list, which is the order the walk below meets them in.
+    static std::vector<std::pair<std::uint64_t, CDecalHandle*>> sDue;
+    sDue.clear();
+    for (auto bucket = mStartTickBuckets.begin();
+         bucket != mStartTickBuckets.end() && bucket->first <= curTick;) {
+      for (CDecalHandle* const handle : bucket->second) {
+        const auto joined = sDecalJoinOrder.find(handle);
+        if (joined != sDecalJoinOrder.end() && handle->mInfo.mStartTick != 0u &&
+            handle->mInfo.mStartTick <= curTick) {
+          sDue.emplace_back(joined->second, handle);
+        }
+      }
+      bucket = mStartTickBuckets.erase(bucket);
+    }
+    std::sort(sDue.begin(), sDue.end());
+    for (const auto& [joined, handle] : sDue) {
+      (void)joined;
+      handle->mInfo.mStartTick = 0u;
+      DestroyHandle(handle);
+    }
+  } else {
     for (CDecalHandleListNode* node = mHandleListHead.mNext; node != listHeadNode;) {
       CDecalHandleListNode* const next = node->mNext;
       CDecalHandle* const handle = CDecalHandle::FromListNode(node);
       if (handle->mInfo.mStartTick != 0u && handle->mInfo.mStartTick <= curTick) {
         handle->mInfo.mStartTick = 0u;
         DestroyHandle(handle);
-      } else if (handle->mInfo.mStartTick != 0u && handle->mInfo.mStartTick < earliest) {
-        earliest = handle->mInfo.mStartTick;
       }
       node = next;
     }
-    sDecalExpiryHint = SDecalExpiryHint{this, true, earliest};
   }
 
   CArmyImpl** const armiesBegin = mSim->mArmiesList.begin();
@@ -510,4 +527,9 @@ void CDecalBuffer::CleanupTick()
   }
 
   AdvanceIdPoolWindow();
+}
+
+void moho::DECAL_ForgetHandle(const CDecalHandle* const handle)
+{
+  sDecalJoinOrder.erase(handle); // sim_DecalBuckets: every way a handle dies passes here
 }

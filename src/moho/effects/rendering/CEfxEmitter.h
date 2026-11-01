@@ -25,7 +25,7 @@ namespace moho
    *
    * Particle emitter effect implementation with recovered visibility lanes.
    */
-  class CEfxEmitter : public CEffectImpl
+  class CEfxEmitter final : public CEffectImpl
   {
   public:
     static gpg::RType* sType;
