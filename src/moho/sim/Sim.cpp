@@ -16009,6 +16009,93 @@ moho::CScrLuaInitForm* moho::func_GetTimeForProfileSim_LuaFuncDef()
  * `GetDepositsAroundPoint` (`.exxt` def chain node 0x0128EA8C, function
  * slot 0x0128B884).
  */
+
+namespace
+{
+  /**
+   * Engine addition (faf-re-ultra, lua_overrides/lua/ai/gridreclaim.lua): `UltraReclaimTotals(reclaim)` ->
+   * count, totalMass, totalEnergy -- GridReclaim.UpdateCell's loop over a cell's reclaim table, natively:
+   * the same `next` order, the same field reads (lua_gettable, __index included), the same float
+   * operations in the same order. Returns nothing (the script then runs its own loop) for anything that
+   * would not be a plain number, nil or false.
+   */
+  [[nodiscard]] bool UltraReadNumberOrZero(lua_State* const L, const char* const field, float* const out)
+  {
+    lua_pushstring(L, field);
+    lua_gettable(L, -2);
+    const int type = lua_type(L, -1);
+    bool ok = true;
+    if (type == LUA_TNIL || (type == LUA_TBOOLEAN && lua_toboolean(L, -1) == 0)) {
+      *out = 0.0f; // `x or 0`
+    } else if (type == LUA_TNUMBER) {
+      *out = lua_tonumber(L, -1);
+    } else {
+      ok = false;
+    }
+    lua_settop(L, -2);
+    return ok;
+  }
+
+  int cfunc_UltraReclaimTotals(lua_State* const L)
+  {
+    if (lua_gettop(L) != 1 || lua_type(L, 1) != LUA_TTABLE) {
+      return 0;
+    }
+    float count = 0.0f;
+    float totalMass = 0.0f;
+    float totalEnergy = 0.0f;
+    lua_pushnil(L);
+    while (lua_next(L, 1) != 0) {
+      count = count + 1.0f;
+      if (lua_type(L, -1) != LUA_TTABLE) {
+        lua_settop(L, 1);
+        return 0;
+      }
+      float fraction = 0.0f;
+      float maxMass = 0.0f;
+      float maxEnergy = 0.0f;
+      if (!UltraReadNumberOrZero(L, "ReclaimLeft", &fraction) || !UltraReadNumberOrZero(L, "MaxMassReclaim", &maxMass)) {
+        lua_settop(L, 1);
+        return 0;
+      }
+      totalMass = totalMass + fraction * maxMass;
+      if (!UltraReadNumberOrZero(L, "MaxEnergyReclaim", &maxEnergy)) {
+        lua_settop(L, 1);
+        return 0;
+      }
+      totalEnergy = totalEnergy + fraction * maxEnergy;
+      lua_settop(L, -2); // keep the key for lua_next
+    }
+    lua_pushnumber(L, count);
+    lua_pushnumber(L, totalMass);
+    lua_pushnumber(L, totalEnergy);
+    return 3;
+  }
+
+  /// Engine addition (faf-re-ultra, lua_overrides/lua/defaultcomponents.lua): whether splats are made at all.
+  int cfunc_UltraSplatsSkipped(lua_State* const L)
+  {
+    lua_pushboolean(L, moho::DECAL_SkipSplats() ? 1 : 0);
+    return 1;
+  }
+
+  moho::CScrLuaInitForm* func_UltraReclaimTotals_LuaFuncDef()
+  {
+    static moho::CScrLuaBinder binder(
+      SimLuaInitSet(), "UltraReclaimTotals", &cfunc_UltraReclaimTotals, nullptr, "<global>", "(reclaimTable)"
+    );
+    return &binder;
+  }
+
+  moho::CScrLuaInitForm* func_UltraSplatsSkipped_LuaFuncDef()
+  {
+    static moho::CScrLuaBinder binder(
+      SimLuaInitSet(), "UltraSplatsSkipped", &cfunc_UltraSplatsSkipped, nullptr, "<global>", "()"
+    );
+    return &binder;
+  }
+} // namespace
+
 moho::CScrLuaInitForm* moho::func_GetDepositsAroundPoint_LuaFuncDef()
 {
   static CScrLuaBinder binder(
@@ -19171,6 +19258,8 @@ namespace
       (void)::moho::func_GetTimeForProfileSim_LuaFuncDef();
       (void)::moho::func_GetMouseWorldPosSim_LuaFuncDef();
       (void)::moho::func_GetDepositsAroundPoint_LuaFuncDef();
+      (void)func_UltraReclaimTotals_LuaFuncDef(); // engine addition
+      (void)func_UltraSplatsSkipped_LuaFuncDef(); // engine addition
       (void)::moho::func_SetCommandSourceSim_LuaFuncDef();
       // FAF FA-Binary-Patches additions, not in the shipped registration sequence.
       (void)::moho::func_printSim_LuaFuncDef();

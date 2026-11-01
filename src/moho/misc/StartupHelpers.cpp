@@ -717,6 +717,38 @@ namespace
   }
 
   /**
+   * Engine addition (faf-re-ultra): Lua files that replace gamedata ones of the same path -- rewrites that
+   * keep every result and only run faster (repository folder lua_overrides). `/luaoverrides <dir>` names the
+   * folder, otherwise `ultra_lua` next to the executable is used when it exists; `/nooverrides` mounts
+   * nothing. The folder goes first in the mount table, so its files win over the init file's mounts.
+   */
+  void PrependEngineOverrideFolder(msvc8::vector<moho::SVFSMountPoint>& mountPoints)
+  {
+    if (moho::CFG_GetArgOption("/nooverrides", 0, nullptr)) {
+      return;
+    }
+    std::filesystem::path folder;
+    msvc8::vector<msvc8::string> args;
+    if (moho::CFG_GetArgOption("/luaoverrides", 1, &args) && !args.empty()) {
+      folder = std::filesystem::path(gpg::STR_Utf8ToWide(args[0].c_str()));
+    } else {
+      std::array<wchar_t, MAX_PATH> modulePath{};
+      const DWORD length = ::GetModuleFileNameW(nullptr, modulePath.data(), static_cast<DWORD>(modulePath.size()));
+      if (length == 0U || length >= modulePath.size()) {
+        return;
+      }
+      folder = std::filesystem::path(modulePath.data()).parent_path() / L"ultra_lua";
+    }
+    std::error_code error;
+    if (!std::filesystem::is_directory(folder, error)) {
+      return;
+    }
+    const msvc8::string folderUtf8 = gpg::STR_WideToUtf8(folder.wstring().c_str());
+    mountPoints.insert(mountPoints.begin(), moho::SVFSMountPoint(folderUtf8.c_str(), "/"));
+    gpg::Logf("engine Lua overrides: %s mounted at /", folderUtf8.c_str());
+  }
+
+  /**
    * Address: 0x008C7C30 (FUN_008C7C30, Moho::CUserPrefs::StringObject)
    *
    * What it does:
@@ -4279,6 +4311,7 @@ bool moho::DISK_SetupDataAndSearchPaths(msvc8::string dataPathScriptName, const 
     mountPoints = CollectMountPointsFromLua(startupState);
     ApplyHookDirectoriesFromLua(startupState);
     AppendEngineHookFolder(mountPoints);
+    PrependEngineOverrideFolder(mountPoints);
   }
 
   {
