@@ -16010,6 +16010,8 @@ moho::CScrLuaInitForm* moho::func_GetTimeForProfileSim_LuaFuncDef()
  * slot 0x0128B884).
  */
 
+extern "C" int lua_ultra_isplaintable(lua_State* L, int idx); // lua/LuaObject.cpp, engine addition
+
 namespace
 {
   /**
@@ -16077,6 +16079,213 @@ namespace
   {
     lua_pushboolean(L, moho::DECAL_SkipSplats() ? 1 : 0);
     return 1;
+  }
+
+
+  /**
+   * Engine addition (faf-re-ultra, lua_overrides/lua/sim/navgenerator.lua):
+   * `UltraNavPopulateHeights(tCache, dCache, daCache, pxCache, pzCache, pCache, bx, bz, c, maxHeightDifference)`
+   * -> true when it did NavGenerator.PopulateCaches' first four loops (terrain and depth samples, cliff
+   * walkability, cell pathability and average depth) -- the same GetTerrainHeight/GetSurfaceHeight samples,
+   * the same float operations in the same order, the same values in the same slots. False (nothing written)
+   * when a cache row is missing or any cache table has a metatable; the script then runs its loops.
+   */
+  [[nodiscard]] bool UltraRowTables(lua_State* const L, const int cacheIndex, const int rows)
+  {
+    if (lua_ultra_isplaintable(L, cacheIndex) == 0) {
+      return false;
+    }
+    for (int row = 1; row <= rows; ++row) {
+      lua_rawgeti(L, cacheIndex, row);
+      const bool plain = lua_ultra_isplaintable(L, -1) != 0;
+      lua_settop(L, -2);
+      if (!plain) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void UltraSetNumber(lua_State* const L, const int cacheIndex, const int row, const int column, const float value)
+  {
+    lua_rawgeti(L, cacheIndex, row);
+    lua_pushnumber(L, value);
+    lua_rawseti(L, -2, column);
+    lua_settop(L, -2);
+  }
+
+  void UltraSetBoolean(lua_State* const L, const int cacheIndex, const int row, const int column, const bool value)
+  {
+    lua_rawgeti(L, cacheIndex, row);
+    lua_pushboolean(L, value ? 1 : 0);
+    lua_rawseti(L, -2, column);
+    lua_settop(L, -2);
+  }
+
+  int cfunc_UltraNavPopulateHeights(lua_State* const L)
+  {
+    enum { kT = 1, kD, kDA, kPX, kPZ, kP, kBX, kBZ, kC, kMaxDiff };
+    if (lua_gettop(L) != 10 || lua_type(L, kBX) != LUA_TNUMBER || lua_type(L, kBZ) != LUA_TNUMBER ||
+        lua_type(L, kC) != LUA_TNUMBER || lua_type(L, kMaxDiff) != LUA_TNUMBER) {
+      lua_pushboolean(L, 0);
+      return 1;
+    }
+    const float bx = lua_tonumber(L, kBX);
+    const float bz = lua_tonumber(L, kBZ);
+    const float cFloat = lua_tonumber(L, kC);
+    const float maxHeightDifference = lua_tonumber(L, kMaxDiff);
+    const int c = static_cast<int>(cFloat);
+    moho::Sim* const sim = ResolveGlobalSim(L);
+    moho::STIMap* const map = sim ? sim->mMapData : nullptr;
+    moho::CHeightField* const field = map ? map->mHeightField.get() : nullptr;
+    const int top = lua_gettop(L);
+    if (static_cast<float>(c) != cFloat || c < 1 || c > 4096 || field == nullptr ||
+        !UltraRowTables(L, kT, c + 1) || !UltraRowTables(L, kD, c + 1) || !UltraRowTables(L, kDA, c) ||
+        !UltraRowTables(L, kPX, c + 1) || !UltraRowTables(L, kPZ, c) || !UltraRowTables(L, kP, c)) {
+      lua_settop(L, top);
+      lua_pushboolean(L, 0);
+      return 1;
+    }
+
+    const int n = c + 1;
+    std::vector<float> terrain(static_cast<std::size_t>(n * n));
+    std::vector<float> depth(static_cast<std::size_t>(n * n));
+    const auto at = [n](const int z, const int x) { return static_cast<std::size_t>((z - 1) * n + (x - 1)); };
+
+    // scan / cache terrain and depth
+    for (int z = 1; z <= n; ++z) {
+      const float absZ = (bz + static_cast<float>(z)) - 1.0f;
+      for (int x = 1; x <= n; ++x) {
+        const float absX = (bx + static_cast<float>(x)) - 1.0f;
+        const float terrainHeight = field->GetElevation(absX, absZ); // GetTerrainHeight
+        float surfaceHeight = field->GetElevation(absX, absZ);       // GetSurfaceHeight
+        if (map->mWaterEnabled != 0u && map->mWaterElevation > surfaceHeight) {
+          surfaceHeight = map->mWaterElevation;
+        }
+        terrain[at(z, x)] = terrainHeight;
+        depth[at(z, x)] = surfaceHeight - terrainHeight;
+        UltraSetNumber(L, kT, z, x, terrainHeight);
+        UltraSetNumber(L, kD, z, x, surfaceHeight - terrainHeight);
+      }
+    }
+
+    // scan / cache cliff walkability
+    std::vector<unsigned char> px(static_cast<std::size_t>(n * n), 1u);
+    std::vector<unsigned char> pz(static_cast<std::size_t>(n * n), 1u);
+    for (int z = 1; z <= n; ++z) {
+      for (int x = 1; x <= c; ++x) {
+        const bool walkable = std::fabs(terrain[at(z, x)] - terrain[at(z, x + 1)]) < maxHeightDifference;
+        px[at(z, x)] = walkable ? 1u : 0u;
+        UltraSetBoolean(L, kPX, z, x, walkable);
+      }
+    }
+    for (int z = 1; z <= c; ++z) {
+      for (int x = 1; x <= n; ++x) {
+        const bool walkable = std::fabs(terrain[at(z, x)] - terrain[at(z + 1, x)]) < maxHeightDifference;
+        pz[at(z, x)] = walkable ? 1u : 0u;
+        UltraSetBoolean(L, kPZ, z, x, walkable);
+      }
+    }
+    // pxCache[z][c + 1] is not written above: read the slot the script would read
+    for (int z = 1; z <= n; ++z) {
+      lua_rawgeti(L, kPX, z);
+      lua_rawgeti(L, -1, n);
+      px[at(z, n)] = lua_toboolean(L, -1) != 0 ? 1u : 0u;
+      lua_settop(L, -3);
+    }
+
+    // compute cliff walkability, average depth (the script reads pzCache[z] for its `pzc1`, kept here)
+    for (int z = 1; z <= c; ++z) {
+      for (int x = 1; x <= c; ++x) {
+        const bool pathable = px[at(z, x)] != 0u && pz[at(z, x)] != 0u && px[at(z + 1, x)] != 0u && pz[at(z, x + 1)] != 0u;
+        UltraSetBoolean(L, kP, z, x, pathable);
+        const float averageDepth =
+          (((depth[at(z, x)] + depth[at(z + 1, x)]) + depth[at(z, x + 1)]) + depth[at(z + 1, x + 1)]) * 0.25f;
+        UltraSetNumber(L, kDA, z, x, averageDepth);
+      }
+    }
+
+    lua_settop(L, top);
+    lua_pushboolean(L, 1);
+    return 1;
+  }
+
+  moho::CScrLuaInitForm* func_UltraNavPopulateHeights_LuaFuncDef()
+  {
+    static moho::CScrLuaBinder binder(
+      SimLuaInitSet(), "UltraNavPopulateHeights", &cfunc_UltraNavPopulateHeights, nullptr, "<global>", "(caches...)"
+    );
+    return &binder;
+  }
+
+
+  /**
+   * Engine addition (faf-re-ultra, lua_overrides/lua/sim/navgenerator.lua):
+   * `UltraNavPopulateBlocking(bCache, bx, bz, c, tlx, tlz, brx, brz)` -> true when it did PopulateCaches'
+   * terrain path blocker loop: `blocked = inside playable rect and not GetTerrainType(x, z).Blocking`, with
+   * GetTerrainType's integer conversion, its terrain type table and the field read through lua_gettable,
+   * and the type only consulted inside the rect as the script's `and` does. False, nothing written, when a
+   * cache table is not plain.
+   */
+  int cfunc_UltraNavPopulateBlocking(lua_State* const L)
+  {
+    enum { kB = 1, kBX, kBZ, kC, kTLX, kTLZ, kBRX, kBRZ };
+    bool numbers = lua_gettop(L) == 8;
+    for (int i = kBX; numbers && i <= kBRZ; ++i) {
+      numbers = lua_type(L, i) == LUA_TNUMBER;
+    }
+    moho::Sim* const sim = numbers ? ResolveGlobalSim(L) : nullptr;
+    moho::STIMap* const map = sim ? sim->mMapData : nullptr;
+    const float cFloat = numbers ? lua_tonumber(L, kC) : 0.0f;
+    const int c = static_cast<int>(cFloat);
+    if (!numbers || map == nullptr || static_cast<float>(c) != cFloat || c < 1 || c > 4096 || !UltraRowTables(L, kB, c)) {
+      lua_pushboolean(L, 0);
+      return 1;
+    }
+    const float bx = lua_tonumber(L, kBX);
+    const float bz = lua_tonumber(L, kBZ);
+    const float tlx = lua_tonumber(L, kTLX);
+    const float tlz = lua_tonumber(L, kTLZ);
+    const float brx = lua_tonumber(L, kBRX);
+    const float brz = lua_tonumber(L, kBRZ);
+    const int top = lua_gettop(L);
+    for (int z = 1; z <= c; ++z) {
+      const float absZ = bz + static_cast<float>(z);
+      for (int x = 1; x <= c; ++x) {
+        const float absX = bx + static_cast<float>(x);
+        bool blocked = (tlx <= absX && brx >= absX) && (tlz <= absZ && brz >= absZ);
+        if (blocked) {
+          const std::uint32_t tx = static_cast<std::uint32_t>(static_cast<std::int64_t>(absX));
+          const std::uint32_t tz = static_cast<std::uint32_t>(static_cast<std::int64_t>(absZ));
+          LuaPlus::LuaObject terrainType = map->GetTerrainType(tx, tz);
+          terrainType.PushStack(L);
+          if (lua_type(L, -1) != LUA_TTABLE) {
+            // indexing anything else is the script's business (an error, or a metamethod): let it run
+            lua_settop(L, top);
+            lua_pushboolean(L, 0);
+            return 1;
+          }
+          lua_pushstring(L, "Blocking");
+          lua_gettable(L, -2);
+          blocked = lua_toboolean(L, -1) == 0; // `not x`
+          lua_settop(L, top);
+        }
+        lua_rawgeti(L, kB, z);
+        lua_pushboolean(L, blocked ? 1 : 0);
+        lua_rawseti(L, -2, x);
+        lua_settop(L, top);
+      }
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+  }
+
+  moho::CScrLuaInitForm* func_UltraNavPopulateBlocking_LuaFuncDef()
+  {
+    static moho::CScrLuaBinder binder(
+      SimLuaInitSet(), "UltraNavPopulateBlocking", &cfunc_UltraNavPopulateBlocking, nullptr, "<global>", "(bCache, ...)"
+    );
+    return &binder;
   }
 
   moho::CScrLuaInitForm* func_UltraReclaimTotals_LuaFuncDef()
@@ -19260,6 +19469,8 @@ namespace
       (void)::moho::func_GetDepositsAroundPoint_LuaFuncDef();
       (void)func_UltraReclaimTotals_LuaFuncDef(); // engine addition
       (void)func_UltraSplatsSkipped_LuaFuncDef(); // engine addition
+      (void)func_UltraNavPopulateHeights_LuaFuncDef(); // engine addition
+      (void)func_UltraNavPopulateBlocking_LuaFuncDef(); // engine addition
       (void)::moho::func_SetCommandSourceSim_LuaFuncDef();
       // FAF FA-Binary-Patches additions, not in the shipped registration sequence.
       (void)::moho::func_printSim_LuaFuncDef();

@@ -1432,6 +1432,17 @@ extern "C"
 		return 1;
 	}
 
+	/// Engine addition (faf-re-ultra): true for a table whose metatable is the shared default (one no script
+	/// set), so the engine's native helpers may read and write it raw.
+	int lua_ultra_isplaintable(lua_State* const state, const int idx)
+	{
+		const TObject* const object = luaA_indexAcceptable(state, idx);
+		return (object != nullptr && object->tt == LUA_TTABLE &&
+		        static_cast<Table*>(object->value.p)->metatable == DefaultTableMetatable(state->l_G))
+			? 1
+			: 0;
+	}
+
 	/**
 	 * What it does:
 	 * Returns the raw pointer behind a userdata slot: the payload for a full
