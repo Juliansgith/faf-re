@@ -2,11 +2,45 @@
 
 #include "legacy/math/X87Math.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <unordered_map>
+#include <vector>
 #include <limits>
 #include <new>
 
 
+
+namespace
+{
+  // Engine addition (performance): DepositIsInArea's bucket index of the deposit rects, one per process
+  // (one sim at a time), rebuilt when the deposits change (AddDeposit, or another list in their place).
+  constexpr int kDepositBucketShift = 4;
+  constexpr std::int64_t kDepositWideBuckets = 64;
+
+  struct DepositIndex
+  {
+    const void* owner = nullptr;
+    const void* data = nullptr;
+    std::size_t size = 0;
+    std::uint64_t generation = 0;
+    std::unordered_map<std::uint32_t, std::vector<std::uint32_t>> buckets;
+    std::vector<std::uint32_t> wide; // deposits spanning more than kDepositWideBuckets buckets: always tested
+  };
+  DepositIndex sDepositIndex;
+  std::uint64_t sDepositGeneration = 1;
+
+  [[nodiscard]] std::uint32_t DepositBucketKey(const int bx, const int bz) noexcept
+  {
+    return (static_cast<std::uint32_t>(bx) << 16) ^ (static_cast<std::uint32_t>(bz) & 0xFFFFu);
+  }
+
+  void NoteDepositsChanged() noexcept
+  {
+    ++sDepositGeneration;
+  }
+} // namespace
 
 namespace
 {
@@ -98,6 +132,7 @@ namespace moho
   void CSimResources::AddDeposit(const EDepositType type, gpg::Rect2i* const pos)
   {
     boost::mutex::scoped_lock lock(lock_);
+    NoteDepositsChanged();
 
     ResourceDeposit deposit{};
     deposit.footprintRect = *pos;
@@ -217,12 +252,52 @@ namespace moho
    * area.z0 == deposit.z0", i.e. a mass extractor could be placed on any cell
    * in the same Z row at or west of any mass point on the map.
    */
+  namespace
+  {
+    /// The index of `resources`' deposits, rebuilt first when they changed; the caller holds the lock.
+    [[nodiscard]] const DepositIndex& DepositIndexFor(const CSimResources& resources)
+    {
+      const msvc8::vector<ResourceDeposit>& deposits = resources.deposits_;
+      DepositIndex& index = sDepositIndex;
+      const void* const data = deposits.empty() ? nullptr : &*deposits.begin();
+      if (index.owner == &resources && index.data == data && index.size == deposits.size() &&
+          index.generation == sDepositGeneration) {
+        return index;
+      }
+      index.owner = &resources;
+      index.data = data;
+      index.size = deposits.size();
+      index.generation = sDepositGeneration;
+      index.buckets.clear();
+      index.wide.clear();
+      std::uint32_t depositIndex = 0;
+      for (const ResourceDeposit& deposit : deposits) {
+        const gpg::Rect2i& rect = deposit.footprintRect;
+        const int bx0 = std::min(rect.x0, rect.x1) >> kDepositBucketShift;
+        const int bx1 = std::max(rect.x0, rect.x1) >> kDepositBucketShift;
+        const int bz0 = std::min(rect.z0, rect.z1) >> kDepositBucketShift;
+        const int bz1 = std::max(rect.z0, rect.z1) >> kDepositBucketShift;
+        if (static_cast<std::int64_t>(bx1 - bx0 + 1) * (bz1 - bz0 + 1) > kDepositWideBuckets) {
+          index.wide.push_back(depositIndex++);
+          continue;
+        }
+        for (int bx = bx0; bx <= bx1; ++bx) {
+          for (int bz = bz0; bz <= bz1; ++bz) {
+            index.buckets[DepositBucketKey(bx, bz)].push_back(depositIndex);
+          }
+        }
+        ++depositIndex;
+      }
+      return index;
+    }
+  } // namespace
+
   bool CSimResources::DepositIsInArea(EDepositType type, gpg::Rect2i* area)
   {
     boost::mutex::scoped_lock lock(lock_);
-    for (const ResourceDeposit& deposit : deposits_) {
+    const auto contains = [type, area](const ResourceDeposit& deposit) {
       if (deposit.depositType != type) {
-        continue;
+        return false;
       }
 
       const gpg::Rect2i& rect = deposit.footprintRect;
@@ -231,15 +306,47 @@ namespace moho
           return true;
         }
         if (area->x0 < rect.x0) {
-          continue;
+          return false;
         }
       }
 
-      if (rect.x1 >= area->x1 && area->z0 >= rect.z0 && rect.z1 >= area->z1) {
+      return rect.x1 >= area->x1 && area->z0 >= rect.z0 && rect.z1 >= area->z1;
+    };
+
+    // Engine addition (performance): either arm of the test needs the deposit's x and z spans to overlap
+    // the area's, so only the deposits indexed under the buckets the area spans can answer (OCCUPY_Check
+    // asks this for every placement an AI tries, and the scan went over every deposit on the map).
+    const DepositIndex& index = DepositIndexFor(*this);
+    const int bx0 = std::min(area->x0, area->x1) >> kDepositBucketShift;
+    const int bx1 = std::max(area->x0, area->x1) >> kDepositBucketShift;
+    const int bz0 = std::min(area->z0, area->z1) >> kDepositBucketShift;
+    const int bz1 = std::max(area->z0, area->z1) >> kDepositBucketShift;
+    if (static_cast<std::int64_t>(bx1 - bx0 + 1) * (bz1 - bz0 + 1) > static_cast<std::int64_t>(deposits_.size())) {
+      for (const ResourceDeposit& deposit : deposits_) {
+        if (contains(deposit)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    for (const std::uint32_t depositIndex : index.wide) {
+      if (contains(deposits_[depositIndex])) {
         return true;
       }
     }
-
+    for (int bx = bx0; bx <= bx1; ++bx) {
+      for (int bz = bz0; bz <= bz1; ++bz) {
+        const auto bucket = index.buckets.find(DepositBucketKey(bx, bz));
+        if (bucket == index.buckets.end()) {
+          continue;
+        }
+        for (const std::uint32_t depositIndex : bucket->second) {
+          if (contains(deposits_[depositIndex])) {
+            return true;
+          }
+        }
+      }
+    }
     return false;
   }
 

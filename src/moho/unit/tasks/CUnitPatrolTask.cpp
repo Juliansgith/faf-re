@@ -840,6 +840,18 @@ namespace moho
     const std::ptrdiff_t count = static_cast<std::ptrdiff_t>(sCandidates.size());
     for (std::ptrdiff_t i = 0; i < count; ++i) {
       Entity* const candidate = sCandidates[static_cast<std::size_t>(i)];
+      {
+        // Engine addition (performance): no weight below is under 0.5 (an enemy's) and scaling by a power
+        // of two is exact, so a candidate whose distance already exceeds the best so far at that weight can
+        // neither beat nor tie it. Every test below is free of side effects, so it is skipped before them.
+        const Wm3::Vec3f& selfPos = unit->GetPosition();
+        const float dx = selfPos.x - candidate->mVarDat.mCurTransform.pos_.x;
+        const float dy = selfPos.y - candidate->mVarDat.mCurTransform.pos_.y;
+        const float dz = selfPos.z - candidate->mVarDat.mCurTransform.pos_.z;
+        if ((dx * dx + dy * dy + dz * dz) * 0.5f > bestWeightedDistanceSq) {
+          continue;
+        }
+      }
       // Both type tests run for every candidate, in this order: Entity vtable
       // +0x10 `IsUnit` at 0x0061BCF1, +0x14 `IsProp` at 0x0061BD05.
       Unit* const candidateUnit = candidate->IsUnit();
