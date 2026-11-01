@@ -17030,6 +17030,8 @@ extern "C"
 		return static_cast<std::int32_t>(static_cast<std::int64_t>(value));
 	}
 
+	static bool LuaTryInlineNext(lua_State* L, StkId callBase, int nvar);
+
 	/**
 	 * Address: 0x00929C60 (FUN_00929C60, luaV_execute)
 	 *
@@ -17589,7 +17591,9 @@ extern "C"
 				callBase[1] = ra[1];
 				callBase[2] = ra[2];
 				L->top = callBase + 3; // iterator + state + control
-				(void)luaD_call(L, callBase, nvar);
+				if (!LuaTryInlineNext(L, callBase, nvar)) {
+					(void)luaD_call(L, callBase, nvar);
+				}
 
 				L->top = L->ci->top;
 				// the call may have moved the stack, so find the slots again
@@ -18095,6 +18099,70 @@ extern "C"
 			}
 		}
 	} // namespace
+
+	/**
+	 * Engine addition (performance): OP_TFORLOOP over the built-in `next` -- `for k, v in t` and
+	 * `pairs` -- without the C call. Leaves what `luaD_call(L, callBase, nvar)` into luaB_next leaves:
+	 * the same stack slots (lua_next's in-place key and value, then luaD_poscall's copy and nil fill),
+	 * the same top for the GC check that ends the call, the closure's invocation count and the call
+	 * gate. Anything the call would do differently (hooks, an `invalid key for next' error, C-stack,
+	 * CallInfo or stack growth, another iterator) takes the call.
+	 */
+	static bool LuaTryInlineNext(lua_State* const L, const StkId callBase, const int nvar)
+	{
+		constexpr int kMinCStackSlots = 20;       // luaD_precall
+		constexpr unsigned int kMaxCCalls = 200;  // luaD_call
+		constexpr lu_byte kHookMaskCallOrReturn = (1 << 0) | (1 << 1);
+
+		if (callBase[0].tt != LUA_CFUNCTION || callBase[1].tt != LUA_TTABLE) {
+			return false;
+		}
+		Closure* const closure = static_cast<Closure*>(callBase[0].value.p);
+		if (closure->c.f != &luaB_next || (L->l_G->hookmask & kHookMaskCallOrReturn) != 0 ||
+		    static_cast<unsigned int>(L->nCcalls) + 1u >= kMaxCCalls || &L->ci[1] == L->end_ci ||
+		    L->stack_last - L->top <= kMinCStackSlots) {
+			return false;
+		}
+		Table* const table = static_cast<Table*>(callBase[1].value.p);
+		TObject* const key = callBase + 2;
+		if (key->tt != LUA_TNIL && luaH_get(table, key) == &luaO_nilobject) {
+			return false; // luaH_index raises; let the real call do it
+		}
+
+		// luaD_precall's per-closure invocation count, then the call gate
+		std::uint32_t& invocationsLow = reinterpret_cast<std::uint32_t&>(closure->c.upvalue_m1[0].tt);
+		std::uint32_t& invocationsHigh = reinterpret_cast<std::uint32_t&>(closure->c.upvalue_m1[0].value.b);
+		const std::uint32_t previousLow = invocationsLow++;
+		if (invocationsLow < previousLow) {
+			++invocationsHigh;
+		}
+		RunLuaCallGate(closure->c.f);
+
+		// luaB_next: lua_next writes the next key over `key` and its value above it; at the end it drops
+		// the key and pushes nil there instead.
+		StkId top = nullptr;
+		if (luaH_next(L, table, key) != 0) {
+			top = callBase + 4;
+		} else {
+			key->tt = LUA_TNIL;
+			top = callBase + 3;
+		}
+
+		// luaD_poscall(L, nvar, results)
+		StkId first = callBase + 2;
+		StkId result = callBase;
+		int wanted = nvar;
+		for (; wanted != 0 && first < top; --wanted) {
+			*result++ = *first++;
+		}
+		for (; wanted > 0; --wanted) {
+			(result++)->tt = LUA_TNIL;
+		}
+		L->top = result;
+
+		luaC_checkGC(L); // luaD_call's
+		return true;
+	}
 
 	/**
 	 * Address: 0x009142A0 (FUN_009142A0, luaD_precall)
