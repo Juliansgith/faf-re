@@ -39,6 +39,15 @@ namespace
     &sim_DecalVisibility
   );
 
+  // Engine addition (performance): with nothing drawing decals (sim_DecalVisibility 0, training),
+  // CreateSplatOnBone returns before making its splat -- a script handle per scorch mark and footprint.
+  // Splats return nothing to Lua and are not part of the sim's checksum.
+  bool sim_SplatSkip = true;
+  moho::TConVar<bool> gTConVar_sim_SplatSkip(
+    "sim_SplatSkip", "CreateSplatOnBone makes nothing when no one draws decals (sim_DecalVisibility 0, training).",
+    &sim_SplatSkip
+  );
+
   // Engine addition (performance, sim_DecalBuckets): CleanupTick expires handles from the start-tick
   // buckets instead of walking every decal each tick (decals expire on most ticks of a battle, so a walk
   // ran on most ticks). The due handles are destroyed in list order -- handles only ever join the list at
@@ -527,6 +536,11 @@ void CDecalBuffer::CleanupTick()
   }
 
   AdvanceIdPoolWindow();
+}
+
+bool moho::DECAL_SkipSplats()
+{
+  return sim_SplatSkip && (!sim_DecalVisibility || AGENT_TrainingMode());
 }
 
 void moho::DECAL_ForgetHandle(const CDecalHandle* const handle)

@@ -2609,6 +2609,9 @@ namespace moho
     if (argumentCount != 9) {
       LuaPlus::LuaState::Error(state, kLuaExpectedArgsWarning, kCreateSplatOnBoneHelpText, 9, argumentCount);
     }
+    if (DECAL_SkipSplats()) {
+      return 0; // engine addition: nothing draws splats (sim_SplatSkip)
+    }
 
     const LuaPlus::LuaObject entityObject(LuaPlus::LuaStackObject(state, 1));
     Entity* const entity = SCR_FromLua_Entity(entityObject, state);

@@ -193,4 +193,7 @@ namespace moho
   static_assert(sizeof(CDecalBuffer) == 0xCF0, "CDecalBuffer size must be 0xCF0");
   /// Engine addition (sim_DecalBuckets): drops a dying handle from CleanupTick's join-order table.
   void DECAL_ForgetHandle(const CDecalHandle* handle);
+  /// Engine addition (sim_SplatSkip): true when splats are not drawn by anyone (sim_DecalVisibility 0 or
+  /// training) and sim_SplatSkip is on, so CreateSplatOnBone need not make them.
+  [[nodiscard]] bool DECAL_SkipSplats();
 } // namespace moho
