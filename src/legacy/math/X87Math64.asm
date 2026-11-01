@@ -102,6 +102,18 @@ msvc8_x87_control_word PROC
     ret
 msvc8_x87_control_word ENDP
 
+; void msvc8_x87_set_pc24()
+; Engine addition (performance): precision control 24 on the calling thread, the other control bits kept
+; (x64's CRT ignores _controlfp's precision mask).
+msvc8_x87_set_pc24 PROC
+    fnstcw  word ptr [rsp+8]
+    movzx   eax, word ptr [rsp+8]
+    and     eax, 0fffffcffh
+    mov     word ptr [rsp+8], ax
+    fldcw   word ptr [rsp+8]
+    ret
+msvc8_x87_set_pc24 ENDP
+
 ; double msvc8_x87_acos(double x), simulation's original PC24 CRT lane.
 msvc8_x87_acos PROC
     movsd   qword ptr [rsp+8], xmm0
@@ -633,6 +645,53 @@ msvc8_x87_box_radius_on_axis PROC
     fldcw   word ptr [rsp+24]
     ret
 msvc8_x87_box_radius_on_axis ENDP
+
+; float msvc8_x87_box_radius_on_axis_pc24(const float* box, const float* axis)
+; Engine addition (performance): the same chain for a thread whose control word already has PC24
+; (X87Math.cpp sets it once per thread), without the per-call fnstcw/fldcw pair.
+msvc8_x87_box_radius_on_axis_pc24 PROC
+    fld     dword ptr [rcx+28h]
+    fld     dword ptr [rdx+4]
+    fmul    st(1), st(0)
+    fld     dword ptr [rcx+2Ch]
+    fld     dword ptr [rdx+8]
+    fmul    st(1), st(0)
+    fxch    st(3)
+    faddp   st(1), st(0)
+    fld     dword ptr [rcx+24h]
+    fld     dword ptr [rdx]
+    fmul    st(1), st(0)
+    fxch    st(2)
+    faddp   st(1), st(0)
+    fabs
+    fmul    dword ptr [rcx+38h]
+    fld     dword ptr [rcx+1Ch]
+    fmul    st(0), st(3)
+    fld     dword ptr [rcx+20h]
+    fmul    st(0), st(5)
+    faddp   st(1), st(0)
+    fld     dword ptr [rcx+18h]
+    fmul    st(0), st(3)
+    faddp   st(1), st(0)
+    fabs
+    fmul    dword ptr [rcx+34h]
+    faddp   st(1), st(0)
+    fld     dword ptr [rcx+10h]
+    fmulp   st(3), st(0)
+    fld     dword ptr [rcx+14h]
+    fmulp   st(4), st(0)
+    fxch    st(2)
+    faddp   st(3), st(0)
+    fmul    dword ptr [rcx+0Ch]
+    faddp   st(2), st(0)
+    fxch    st(1)
+    fabs
+    fmul    dword ptr [rcx+30h]
+    faddp   st(1), st(0)
+    fstp    dword ptr [rsp+32]
+    movss   xmm0, dword ptr [rsp+32]
+    ret
+msvc8_x87_box_radius_on_axis_pc24 ENDP
 
 ; float msvc8_x87_vector_length_zyx(const float* lanes)
 ; sqrt((z*z + y*y) + x*x) as cfunc_ProjectileGetCurrentSpeedL forms it

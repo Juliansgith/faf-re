@@ -3,6 +3,7 @@
 
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 #include <xmmintrin.h>
 
 // FAF_ULTRA_FP builds take legacy/math/X87MathUltra.cpp (plain float/double, inlinable) instead.
@@ -40,6 +41,10 @@ extern "C" double __cdecl msvc8_x87_acos(double x);
 extern "C" double __cdecl msvc8_x87_asin(double x);
 extern "C" double __cdecl msvc8_x87_pow(double x, double y);
 extern "C" unsigned int __cdecl msvc8_x87_control_word();
+#if defined(_M_X64)
+extern "C" void __cdecl msvc8_x87_set_pc24();
+extern "C" float __cdecl msvc8_x87_box_radius_on_axis_pc24(const float* boxLanes, const float* axisLanes);
+#endif
 extern "C" float __cdecl msvc8_x87_atan2_difference(float firstY, float firstX, float secondY, float secondX);
 extern "C" float __cdecl msvc8_x87_atan2_plus(float y, float x, float addend);
 extern "C" float __cdecl msvc8_x87_sin_times_cos(float sinArg, float cosArg);
@@ -249,6 +254,92 @@ namespace msvc8
 #endif
   }
 
+#if defined(_M_X64) || defined(__x86_64__)
+  namespace
+  {
+    /**
+     * Engine addition (performance): one x87 result under precision control 24 -- the exact value rounded
+     * to a 24-bit significand, nearest-even, keeping the x87's wide exponent (no float underflow). Inside
+     * float's normal range that is the float conversion; below it the value is scaled into range first.
+     * Values past FLT_MAX do not occur in the helpers that use it.
+     */
+    [[nodiscard]] inline double RoundPc24(const double x) noexcept
+    {
+      const double magnitude = std::fabs(x);
+      if (magnitude >= 0x1p-126) {
+        return static_cast<double>(static_cast<float>(x));
+      }
+      if (!(magnitude > 0.0)) {
+        return x; // zero, NaN
+      }
+      if (magnitude >= 0x1p-226) {
+        return static_cast<double>(static_cast<float>(x * 0x1p100)) * 0x1p-100;
+      }
+      return static_cast<double>(static_cast<float>(x * 0x1p200)) * 0x1p-200;
+    }
+
+    /// x87 `fmul` of two PC24 values: their product is exact in a double (48 significant bits).
+    [[nodiscard]] inline double MulPc24(const double a, const double b) noexcept
+    {
+      return RoundPc24(a * b);
+    }
+
+    /**
+     * x87 `fadd` of two PC24 values. The double sum is exact while the exponents are at most 28 apart
+     * (it spans at most 53 bits); further apart, the smaller lies below half a 24-bit unit of the larger
+     * by more than a double's rounding error, so both round to the larger.
+     */
+    [[nodiscard]] inline double AddPc24(const double a, const double b) noexcept
+    {
+      return RoundPc24(a + b);
+    }
+
+    /**
+     * msvc8_x87_box_radius_on_axis in double arithmetic, operation for operation: the same 24-bit
+     * results without the x87 round trips (control word, then result through memory), which made the
+     * routine cost hundreds of cycles a call in some builds on Zen 3.
+     */
+    [[nodiscard]] float BoxRadiusOnAxisPc24(const float* const box, const float* const axis) noexcept
+    {
+      const double ax = axis[0];
+      const double ay = axis[1];
+      const double az = axis[2];
+      const double s2 = AddPc24(AddPc24(MulPc24(box[10], ay), MulPc24(box[11], az)), MulPc24(box[9], ax));
+      const double r2 = MulPc24(std::fabs(s2), box[14]);
+      const double s1 = AddPc24(AddPc24(MulPc24(box[7], ay), MulPc24(box[8], az)), MulPc24(box[6], ax));
+      const double r1 = MulPc24(std::fabs(s1), box[13]);
+      const double s0 = AddPc24(AddPc24(MulPc24(box[4], ay), MulPc24(box[5], az)), MulPc24(box[3], ax));
+      const double r0 = MulPc24(std::fabs(s0), box[12]);
+      return static_cast<float>(AddPc24(AddPc24(r2, r1), r0));
+    }
+
+    /// FAF_X87EMU: 0 the binary's x87 routine, 1 BoxRadiusOnAxisPc24, 2 (default on Windows) the x87 chain
+    /// on a thread kept at PC24.
+    [[nodiscard]] int X87BoxRadiusMode() noexcept
+    {
+      static const int mode = [] {
+#if defined(_WIN32)
+        char value[8] = {};
+        std::size_t length = 0;
+        if (getenv_s(&length, value, sizeof(value), "FAF_X87EMU") == 0 && length > 0 && value[0] >= '0' && value[0] <= '2') {
+          return value[0] - '0';
+        }
+        return 2;
+#else
+        const char* const value = std::getenv("FAF_X87EMU");
+        return (value != nullptr && value[0] >= '0' && value[0] <= '1') ? value[0] - '0' : 1;
+#endif
+      }();
+      return mode;
+    }
+
+#if defined(_M_X64)
+    /// Set once a thread's control word has PC24 (msvc8_x87_set_pc24); x64 code never changes it after.
+    thread_local bool tX87Pc24 = false;
+#endif
+  } // namespace
+#endif
+
   float BoxRadiusOnAxisX87(const float* const boxLanes, const float* const axisLanes) noexcept
   {
 #if defined(_M_IX86)
@@ -298,7 +389,20 @@ namespace msvc8
     }
     return radius;
 #else
-    return msvc8_x87_box_radius_on_axis(boxLanes, axisLanes);
+    switch (X87BoxRadiusMode()) {
+      case 1:
+        return BoxRadiusOnAxisPc24(boxLanes, axisLanes);
+#if defined(_M_X64)
+      case 2:
+        if (!tX87Pc24) {
+          msvc8_x87_set_pc24();
+          tX87Pc24 = true;
+        }
+        return msvc8_x87_box_radius_on_axis_pc24(boxLanes, axisLanes);
+#endif
+      default:
+        return msvc8_x87_box_radius_on_axis(boxLanes, axisLanes);
+    }
 #endif
   }
 
