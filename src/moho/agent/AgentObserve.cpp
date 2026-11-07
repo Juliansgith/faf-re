@@ -59,6 +59,7 @@
 #include "moho/sim/Sim.h"
 #include "moho/unit/CUnitCommand.h"
 #include "moho/unit/CUnitCommandQueue.h"
+#include "moho/unit/CUnitMotion.h"
 #include "moho/unit/core/Unit.h"
 #include "moho/unit/core/UnitAttributes.h"
 
@@ -399,6 +400,12 @@ namespace moho::agent
       VisibleFields(d, L, s, unit, unitIndex);
       d.Bool("idle", unit->IsIdleState());
       d.Number("work", unit->mUnitVarDat.mWorkProgress);
+      // Match the two Lua fuel getters, which require a motion object. Only
+      // own units expose these fields; VisibleFields intentionally omits them.
+      if (unit->UnitMotion != nullptr) {
+        d.Number("fuel", unit->mUnitVarDat.mFuelRatio);
+        d.Number("fuel_use_time", unit->UnitMotion->mFuelUseTime);
+      }
 
       // Unit:GetCommandQueue(): the live commands; the first is the current order
       int queued = 0;
@@ -462,7 +469,9 @@ namespace moho::agent
         }
       }
 
-      if ((Contains(engineerCat, unit) || Contains(factoryCat, unit)) && unit->mVarDat.mFractionComplete >= 1.0f) {
+      const bool factory = Contains(factoryCat, unit);
+      if ((Contains(engineerCat, unit) || factory) &&
+          (unit->mVarDat.mFractionComplete >= 1.0f || (factory && unit->mVarDat.mFractionComplete >= 0.9f))) {
         const BlueprintFacts& facts = BuildListOf(L, s, unit, unitIndex);
         if (facts.hasBuildList) {
           std::string& out = d.Key("can_build");

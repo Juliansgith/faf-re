@@ -381,6 +381,20 @@ namespace moho
     }
 
     if (!platform->IsIdleState()) {
+      // IssueTransportLoad initially queues the same command on the aircraft
+      // and its target. An idle aircraft can reach this task before the pad's
+      // dispatcher has removed its no-op side of that shared command. Wait
+      // for that one handoff instead of dropping the aircraft's docking order.
+      // An unrelated platform order still cancels refueling as before.
+      const CUnitCommand* const aircraftCommand =
+        unit->CommandQueue ? unit->CommandQueue->GetCurrentCommand() : nullptr;
+      const CUnitCommand* const platformCommand =
+        platform->CommandQueue ? platform->CommandQueue->GetCurrentCommand() : nullptr;
+      if (mTaskState == TASKSTATE_Preparing && aircraftCommand != nullptr && aircraftCommand == platformCommand &&
+          (aircraftCommand->mVarDat.mCmdType == EUnitCommandType::UNITCOMMAND_TransportLoadUnits ||
+           aircraftCommand->mVarDat.mCmdType == EUnitCommandType::UNITCOMMAND_Dock)) {
+        return 1;
+      }
       return -1;
     }
 
