@@ -1,3 +1,4 @@
+#include <cstring>
 #include "moho/app/UserWorkerPool.h"
 #include "gpg/core/profiling/Profiler.h"
 #include "moho/core/ThreadPlacement.h"
@@ -180,7 +181,9 @@ namespace moho
 
   unsigned int CUserWorkerPool::ConfiguredWorkerCount()
   {
-    if (user_Workers == 0) {
+    // A headless training game draws nothing, and dozens share the CPUs: load-time Lua collections run on the main thread.
+    static const bool agentHeadless = ::strstr(::GetCommandLineA(), "/agentheadless") != nullptr;
+    if (agentHeadless || user_Workers == 0) {
       return 0u;
     }
     const unsigned int cpus = UsableCpuCount();

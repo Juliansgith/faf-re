@@ -752,6 +752,17 @@ namespace gpg::gal
     }
   } // namespace
 
+  namespace
+  {
+    // A /agentheadless training game never draws, and under Wine with no GPU its cursor texture may not load:
+    // no cursor is not an error there.
+    bool AgentHeadlessRun()
+    {
+      static const bool headless = ::strstr(::GetCommandLineA(), "/agentheadless") != nullptr;
+      return headless;
+    }
+  } // namespace
+
   CursorD3D11::~CursorD3D11()
   {
     Destroy();
@@ -785,6 +796,9 @@ namespace gpg::gal
   HCURSOR CursorD3D11::InitCursor()
   {
     if (mCursorIcon == nullptr) {
+      if (AgentHeadlessRun()) {
+        return nullptr;
+      }
       ThrowError("CursorD3D11.cpp", __LINE__, "attempt to use uninitialized cursor");
     }
     return ::SetCursor(mCursorIcon);
@@ -793,6 +807,9 @@ namespace gpg::gal
   int CursorD3D11::ShowCursor(const bool show)
   {
     if (mCursorIcon == nullptr) {
+      if (AgentHeadlessRun()) {
+        return 0;
+      }
       ThrowError("CursorD3D11.cpp", __LINE__, "attempt to use uninitialized cursor");
     }
 
