@@ -16,6 +16,9 @@
 #include <stdexcept>
 #include <thread>
 #include <windows.h>
+#if !defined(_WIN32)
+#include "platform/posix/NativePath.h"
+#endif
 
 namespace moho::sfd
 {
@@ -247,6 +250,12 @@ namespace moho::sfd
   )
   {
     Close();
+#if !defined(_WIN32)
+    // Linux: the engine's file name ('\fa\movies\uef_load.sfd') as the metadata reader and FFmpeg open it.
+    const std::string nativeName = faf::posix::NativePath(filename);
+    if (filename)
+      filename = nativeName.c_str();
+#endif
     IDirectSound* device{};
     long attenuation{};
     {
