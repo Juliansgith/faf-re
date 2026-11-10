@@ -121,6 +121,12 @@ cmake --build --preset clang-x64-release   # build/clang-x64-release/src/main_x6
 
 Configuring brings `dependencies/` up to date: it clones missing submodules, fetches missing downloads pinned by commit or SHA256, and applies the FAF patches in `dependencies/patches/`. The full list is in [Libraries the engine uses](#libraries-the-engine-uses). `cmake -P cmake/FafDependencies.cmake` does the same without configuring.
 
+### Linux
+
+The game also runs natively on Linux x86-64 (SDL 3, Vulkan, FAudio), with the same simulation
+results as Windows: single player and replays, not online play yet. Build and run it as
+[docs/LINUX_CLIENT.md](docs/LINUX_CLIENT.md) describes.
+
 ### IDEs
 
 - **Visual Studio 2022:** File → Open → Folder, then pick a preset.
