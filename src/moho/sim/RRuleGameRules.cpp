@@ -92,6 +92,29 @@ namespace moho
   std::atomic<const RRuleGameRules*> gLoaderReleasesBlueprints{nullptr};
 
   /**
+   * Engine addition: the two copies a deferred release waits for. The session's export
+   * (RULE_ReleaseDeferredScriptBlueprints) and a sim copy - the state built ahead of the sim
+   * (RULE_NoteSimBlueprintCopy) or the sim's own (OnSimHasBlueprints) - in either order; the second
+   * frees the rules' copy. The ahead-of-time state is skipped once an earlier game in the process
+   * has left sim blocks free (SIM_PrepareLuaState), and the sim then builds its state after the
+   * session's export: freeing at the export left that sim, and every later game in the process,
+   * with no `__blueprints`.
+   */
+  struct DeferredBlueprintRelease
+  {
+    std::mutex lock;
+    const RRuleGameRules* rules = nullptr; // null: none pending (or already freed)
+    bool sessionExported = false;
+    bool simHasCopy = false;
+  };
+
+  DeferredBlueprintRelease& DeferredRelease()
+  {
+    static auto* const deferred = new DeferredBlueprintRelease(); // never destroyed: used from rules dtors at exit
+    return *deferred;
+  }
+
+  /**
    * One blueprint file waiting to be reloaded, linked into
    * `RRuleGameRulesImpl::mPendingBlueprintReloads`. Retiring one is a plain
    * `delete` (0x0052A742..0x0052A77A: the path's destructor, then the unlink).
@@ -1062,6 +1085,13 @@ namespace moho
     RULE_ForgetLent(this); // engine addition: a later rules object may get this address
     const RRuleGameRules* expected = this; // engine addition (wld_StartSimEarly): a later rules object may get this address
     (void)gLoaderReleasesBlueprints.compare_exchange_strong(expected, nullptr);
+    {
+      DeferredBlueprintRelease& deferred = DeferredRelease();
+      const std::lock_guard<std::mutex> guard(deferred.lock);
+      if (deferred.rules == this) {
+        deferred.rules = nullptr;
+      }
+    }
     gRulesGeneration.fetch_add(1u, std::memory_order_relaxed); // engine addition, see BlueprintNameCache
     DestroyBlueprintObjectsFromOrdinalArray(*this);
 
@@ -1183,19 +1213,65 @@ namespace moho
 
   void RRuleGameRulesImpl::OnSimHasBlueprints()
   {
-    if (rule_ReleaseScriptBlueprints && !KeepsScriptBlueprints() && gLoaderReleasesBlueprints.load(std::memory_order_acquire) != this) {
+    if (gLoaderReleasesBlueprints.load(std::memory_order_acquire) == this) {
+      // A deferred release: freed here only when the session has exported already.
+      DeferredBlueprintRelease& deferred = DeferredRelease();
+      {
+        const std::lock_guard<std::mutex> guard(deferred.lock);
+        if (deferred.rules != this) {
+          return; // freed already, or not this load's
+        }
+        deferred.simHasCopy = true;
+        if (!deferred.sessionExported) {
+          return; // RULE_ReleaseDeferredScriptBlueprints frees it
+        }
+        deferred.rules = nullptr;
+      }
+    }
+    if (rule_ReleaseScriptBlueprints && !KeepsScriptBlueprints()) {
       ReleaseScriptBlueprints();
     }
   }
 
   void RULE_DeferScriptBlueprintRelease(RRuleGameRules* const rules) noexcept
   {
+    {
+      DeferredBlueprintRelease& deferred = DeferredRelease();
+      const std::lock_guard<std::mutex> guard(deferred.lock);
+      deferred.rules = rules;
+      deferred.sessionExported = false;
+      deferred.simHasCopy = false;
+    }
     gLoaderReleasesBlueprints.store(rules, std::memory_order_release);
+  }
+
+  void RULE_NoteSimBlueprintCopy(const RRuleGameRules* const rules) noexcept
+  {
+    DeferredBlueprintRelease& deferred = DeferredRelease();
+    const std::lock_guard<std::mutex> guard(deferred.lock);
+    if (rules != nullptr && deferred.rules == rules) {
+      deferred.simHasCopy = true;
+    }
   }
 
   void RULE_ReleaseDeferredScriptBlueprints(RRuleGameRules* const rules)
   {
-    if (rule_ReleaseScriptBlueprints && !KeepsScriptBlueprints() && rules != nullptr && gLoaderReleasesBlueprints.load(std::memory_order_acquire) == rules) {
+    if (rules == nullptr || gLoaderReleasesBlueprints.load(std::memory_order_acquire) != rules) {
+      return;
+    }
+    {
+      DeferredBlueprintRelease& deferred = DeferredRelease();
+      const std::lock_guard<std::mutex> guard(deferred.lock);
+      if (deferred.rules != rules) {
+        return;
+      }
+      deferred.sessionExported = true;
+      if (!deferred.simHasCopy) {
+        return; // the sim builds its state later (no state was prepared ahead): OnSimHasBlueprints frees it
+      }
+      deferred.rules = nullptr;
+    }
+    if (rule_ReleaseScriptBlueprints && !KeepsScriptBlueprints()) {
       static_cast<RRuleGameRulesImpl*>(rules)->ReleaseScriptBlueprints();
     }
   }

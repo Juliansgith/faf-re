@@ -897,12 +897,15 @@ namespace moho
 
   /**
    * Engine addition (`wld_StartSimEarly`): the session loader frees the rules' Lua copy of the
-   * blueprints itself (`RULE_ReleaseDeferredScriptBlueprints`), after the session's export, which
-   * comes after the sim's there; the sim, which may start before that export, then leaves it be in
-   * `OnSimHasBlueprints`. For the rules of one load at a time.
+   * blueprints once the session's export and a sim copy both exist, in either order: the loader in
+   * `RULE_ReleaseDeferredScriptBlueprints` when the sim's state was built ahead of it
+   * (`RULE_NoteSimBlueprintCopy`), else the sim in `OnSimHasBlueprints`. For the rules of one load at
+   * a time.
    */
   void RULE_DeferScriptBlueprintRelease(RRuleGameRules* rules) noexcept;
   void RULE_ReleaseDeferredScriptBlueprints(RRuleGameRules* rules);
+  /** Engine addition: a sim Lua state with `rules`' blueprints was built ahead of the sim (SIM_PrepareLuaState). */
+  void RULE_NoteSimBlueprintCopy(const RRuleGameRules* rules) noexcept;
 
   /**
    * Engine addition (the map editor, src/editor): the rules a session ends with are kept for the next

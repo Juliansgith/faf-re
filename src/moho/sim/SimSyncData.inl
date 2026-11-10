@@ -716,6 +716,7 @@ void moho::SIM_PrepareLuaState(RRuleGameRules* const rules)
     gpg::SetThreadName(0xFFFFFFFFu, "Sim Lua prep");
     try {
       prepared.state = BuildSimLuaState(rules);
+      RULE_NoteSimBlueprintCopy(rules); // the session loader may free the rules' copy now
     } catch (const std::exception& error) {
       gpg::Warnf("Preparing the sim's Lua state failed, the sim builds its own: %s", error.what());
     }
