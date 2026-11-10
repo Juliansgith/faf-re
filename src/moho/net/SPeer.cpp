@@ -121,7 +121,12 @@ namespace moho
     CMessage msg(ELobbyMsg::LOBMSG_NewPeer);
     CMessageStream stream(msg, CMessageStream::Access::kReadWrite);
     stream.Write(playerName);
+#if defined(_WIN32)
     stream.Write(address);
+#else
+    // Engine addition (faf-neural-ai): u_long is 64-bit on Linux; the wire has Winsock's 32-bit address.
+    stream.Write(static_cast<std::uint32_t>(address));
+#endif
     stream.Write(port);
     stream.Write(uid);
     connection->Write(msg);
