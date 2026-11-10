@@ -1,0 +1,161 @@
+# Engine addition (cross-standard-library determinism): the faf_sim sites that order through an
+# implementation-defined algorithm (tests/linux/OrderGate.py): a non-stable sort or heap algorithm,
+# or iteration over an unordered container. One "<class> <path> | <kind> | <statement>" per line;
+# the reason above each entry or group; docs/SIM_ORDER_AUDIT.md has the audit. A new site fails the
+# Linux build until it is reviewed here. Classes:
+#   safe        the order cannot differ between the MSVC STL and libc++, or nothing reads it;
+#   not-sim     diagnostics, logs, render or I/O only;
+#   fix-needed  the order reaches sim state, the checksum or Lua and can differ; OrderGate.py
+#               --strict fails on these until they are fixed.
+# The statement is the source line from its start to the first '{' or ';', whitespace collapsed:
+# OrderGate.py --list prints every site's key.
+
+# --- fix-needed: Order reaches the sim; ties possible. docs/SIM_ORDER_AUDIT.md has the fix.
+# (None left: LaunchInfoBuilder.cpp's player-option sort is fa::sort now, the retail order.)
+
+# --- safe: Scalars or values sorted by plain <: equal elements are identical, so any order is the same.
+
+# Packed int16 edge words, then unique.
+safe src/gpg/core/algorithms/Cluster.cpp | sort | std::sort(outEdges.begin(), outEdges.end());
+
+# Content names (strings), then unique.
+safe src/remote/wire/OrdinalTable.cpp | sort | std::sort(table.mNames.begin(), table.mNames.end());
+
+# Mod uids (strings), hashed in sorted order.
+safe src/remote/ContentCheck.cpp | sort | std::sort(uids.begin(), uids.end());
+
+# Mount paths by string view, then unique.
+safe src/moho/sim/CVFSImpl.cpp | sort | std::sort(paths.begin(), paths.end(), [](const fa::string& lhs, const fa::string& rhs) {
+
+# Entity ids (uint32).
+safe src/remote/SpatialOracle.cpp | sort | std::sort(outIds.begin(), outIds.end());
+
+# Reclaim ids (uint32) for binary_search.
+safe src/remote/SyncRouting.cpp | sort | std::sort(mReclaimFirst.begin(), mReclaimFirst.end());
+
+# View ids (uint32), then unique.
+safe src/remote/ViewFrames.cpp | sort | std::sort(held.candidates.begin(), held.candidates.end());
+
+# View ids (uint32).
+safe src/remote/ViewFrames.cpp | sort | std::sort(held.removed.begin(), held.removed.end());
+
+# Entity ids (uint32), then unique.
+safe src/remote/ViewFrames.cpp | sort | std::sort(mLeavingEntities.begin(), mLeavingEntities.end());
+
+# NetSpeeds median and jitter of 25 floats: the k-th value is the same whatever order ties take
+# (network pacing, not sim state either).
+safe src/moho/net/Common.cpp | sort | std::sort(tmp, tmp + i);
+
+# nth_element for the median of the beat-time window: the k-th value is the same whatever the
+# order (server pacing, not sim state either).
+safe src/remote/SpeedLimit.h | sort | std::nth_element(sorted.begin(), sorted.begin() + kWindow / 2, sorted.end());
+
+# --- safe: Comparator is a strict total order over the elements that occur (no two distinct elements tie).
+
+# Subcluster nodes by int16(x | z << 8): Node is just {x, z}, so the key is a bijection and only
+# identical nodes tie (unique then drops them).
+safe src/gpg/core/algorithms/Cluster.cpp | sort | std::sort(outNodes.begin(), outNodes.end(), [](const Cluster::Node& lhs, const Cluster::Node& rhs) {
+
+# io.dir names by STR_FileNameOrderLess, which breaks case ties by strcmp; one directory's names
+# are distinct. Lua-visible, and total.
+safe src/lua/LuaObjectIoLib.inl | sort | std::sort(names.begin(), names.end(), [](const std::string& lhs, const std::string& rhs) {
+
+# Mount wildcard matches by STR_FileNameOrderLess (total, names in one directory distinct).
+safe src/moho/sim/CVFSImpl.cpp | sort | std::sort(matches.begin(), matches.end(), [](const __finddata64_t& lhs, const __finddata64_t& rhs) {
+
+# _findfirst64 on POSIX: one directory's names by STR_FileNameOrderLess (total, distinct).
+safe src/platform/posix/Win32Shim.cpp | sort | std::sort(search->matches.begin(), search->matches.end(), [](const __finddata64_t& a, const __finddata64_t& b) {
+
+# res_EnumOrderFuzz (off unless /enumorderfuzz): names by strcmp before the seeded shuffle.
+safe src/moho/sim/CVFSImpl.h | sort | std::sort(first, last, [&nameOf](const auto& lhs, const auto& rhs) {
+
+# Search-path candidates of one wildcard by PATH_ReverseComponentLess, then directory flag: the
+# resolved paths of one listing differ in their last component, so only identical candidates tie.
+safe src/moho/sim/CVFSImpl.cpp | sort | std::sort(searchCandidates.begin(), searchCandidates.end(), SearchPathCandidateLess);
+
+# Expired decals by mInfo.mObj descending: the decal object id from the id pool, unique among live
+# handles (the replacement for the pointer-ordered fa::set the binary walks).
+safe src/moho/render/CDecalBuffer.cpp | sort | std::sort(ordered.begin(), ordered.end(), [](const CDecalHandle* const lhs, const CDecalHandle* const rhs) {
+
+# Change set by entity id: each entity is synced once per walk, and the focus-change pass adds
+# only ids not already present.
+safe src/remote/BeatChangeSet.cpp | sort | std::sort(mSealed.begin(), mSealed.end(), [](const SChangedEntity& lhs, const SChangedEntity& rhs) {
+
+# Frame records by view id (unique in a frame).
+safe src/remote/ViewIdMap.cpp | sort | std::sort(frame.entities.begin(), frame.entities.end(), [](const wire::SEntityRecord& a, const wire::SEntityRecord& b) {
+
+# Records by view id (unique).
+safe src/remote/ViewFrames.cpp | sort | std::sort(held.created.begin(), held.created.end(), [](const wire::SEntityRecord* const a, const wire::SEntityRecord* const b) {
+
+# Changes by view id (unique).
+safe src/remote/ViewFrames.cpp | sort | std::sort(held.changed.begin(), held.changed.end(), [](const wire::SFrameChange& a, const wire::SFrameChange& b) {
+
+# Held-check records by view id (unique).
+safe src/remote/ViewFrames.cpp | sort | std::sort(kept.begin(), kept.end(), [](const wire::SEntityRecord* const a, const wire::SEntityRecord* const b) {
+
+# Records by view id (unique).
+safe src/remote/ViewFrames.cpp | sort | std::sort(records.begin(), records.end(), [](const wire::SEntityRecord* const a, const wire::SEntityRecord* const b) {
+
+# Unit stats by name ordinal: a unit's stat tree holds each name once (wire data, not sim state).
+safe src/remote/FrameBuilder.cpp | sort | std::sort(out.begin(), out.end(), [](const wire::SUnitStat& a, const wire::SUnitStat& b) {
+safe src/remote/FrameBuilder.cpp | sort | std::sort(stats.begin(), stats.end(), [](const wire::SUnitStat& a, const wire::SUnitStat& b) {
+
+# --- safe: Sorted by address only to search or group; what the sim sees does not depend on the order.
+
+# Lua GC: tmudata objects by address for binary_search membership.
+safe src/lua/LuaObjectPlusRefs.inl | sort | std::sort(separated.begin(), separated.end());
+
+# Library C-function pointers for binary_search membership.
+safe src/lua/LuaObjectVm.inl | sort | std::sort(functions.begin(), functions.end(), std::less<>{
+
+# DeferredBlipUnlinks::Flush: weak-pointer chains by address, grouped into runs; every chain is
+# independent and splicing never reorders the nodes that stay (the parallel flush relies on it).
+safe src/moho/unit/core/UnitReflection.inl | sort | std::sort(mChains.begin(), mChains.end());
+
+# DeferredBlipUnlinks::Flush: released blocks by begin address for upper_bound; blocks are disjoint.
+safe src/moho/unit/core/UnitReflection.inl | sort | std::sort(mBlocks.begin(), mBlocks.end(), [](const auto& lhs, const auto& rhs) {
+
+# Cell entries by (layer, z, x): entities in one cell tie, but the view's ids are sorted after
+# admission (CollectViewEntities), so the output does not depend on the tie order.
+safe src/remote/SpatialOracle.cpp | sort | std::sort(index.mEntries.begin(), index.mEntries.end(), CellLess<SCellEntity>);
+
+# Retiring view ids in hash order go to CViewIdMap::RetireEntities: every one gets the same grace
+# expiry and view serials are never reused, so the order changes nothing that is read.
+safe src/remote/ViewFrames.cpp | iterate | for (auto it = retiring.begin();
+
+# --- not-sim: Diagnostics, logs, docs, caches or the remote client's statistics.
+
+# lua_GcVerify reference walk (ListToVector).
+not-sim src/lua/LuaObjectBaseLib.inl | sort | std::sort(out.begin(), out.end());
+
+# lua_GcVerify weak-list comparison.
+not-sim src/lua/LuaObjectPlusRefs.inl | sort | std::sort(parallel.begin(), parallel.end());
+
+# lua_GcVerify sweep comparison.
+not-sim src/lua/LuaObjectPlusRefs.inl | sort | std::sort(walked.begin(), walked.end());
+
+# lua_GcVerify sweep comparison.
+not-sim src/lua/LuaObjectPlusRefs.inl | sort | std::sort(recorded.begin(), recorded.end());
+
+# DumpDocs: the Lua binding docs, logged.
+not-sim src/moho/lua/CScrLuaInitForm.cpp | sort | std::sort(entries.begin(), entries.end(), LessEntry);
+
+# The compiled-chunk cache file's entry order; reading it back is keyed.
+not-sim src/moho/lua/ScriptChunkCache.cpp | iterate | for (const auto& [key, chunk] : mChunks) {
+
+# Sim::DumpUnits console command: units per blueprint by count, logged (ties possible, log only).
+not-sim src/moho/sim/SimEntities.inl | sort | std::sort(begin, end, [](const DumpUnitsCountEntry& lhs, const DumpUnitsCountEntry& rhs) {
+
+# sim_PatrolPropCacheCheck: the cache against the binary's search, as sets, logged.
+not-sim src/moho/unit/tasks/CUnitPatrolTask.cpp | sort | std::sort(want.begin(), want.end());
+
+# sim_PatrolPropCacheCheck, as above.
+not-sim src/moho/unit/tasks/CUnitPatrolTask.cpp | sort | std::sort(have.begin(), have.end());
+
+# Remote client: mismatch counters over the packet's indexes (sums, order-free).
+not-sim src/remote/client/SyncRebuilder.cpp | iterate | for (const auto& [id, entry] : packetEntityUpdates) {
+not-sim src/remote/client/SyncRebuilder.cpp | iterate | for (const auto& [id, entry] : packetUnitUpdates) {
+not-sim src/remote/client/SyncRebuilder.cpp | iterate | for (const auto& [id, params] : packetEntities) {
+not-sim src/remote/client/SyncRebuilder.cpp | iterate | for (const auto& [id, params] : packetUnits) {
+not-sim src/remote/client/SyncRebuilder.cpp | iterate | for (const std::uint32_t id : packetDeleted) {
+not-sim src/remote/client/SyncRebuilder.cpp | iterate | for (const std::uint32_t id : packetErased) {

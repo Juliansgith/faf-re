@@ -23,6 +23,7 @@
 #endif
 
 #include "legacy/containers/Vector.h"
+#include "legacy/algorithms/Sort.h"
 #include "gpg/core/containers/String.h"
 #include "gpg/core/streams/FileStream.h"
 #include "gpg/core/utils/Logging.h"
@@ -134,6 +135,30 @@ namespace
   )
   {
     return static_cast<int>(SumStatCategory(item, category));
+  }
+
+  /**
+   * Engine addition (docs/SIM_ORDER_AUDIT.md): the map is keyed on blueprint pointers, so it walks in
+   * heap-address order, which is not the same on Linux and Windows (or between allocators). What adds
+   * up the floats or hands them to Lua walks them in blueprint-ordinal order instead
+   * (`mCategoryBitIndex`, RBlueprint::mBlueprintOrdinal: load order, unique per blueprint), the same on
+   * every platform. Null keys are left out, as the walks did.
+   */
+  [[nodiscard]] fa::vector<std::pair<const moho::RUnitBlueprint*, float>> BlueprintStatsInOrdinalOrder(
+    const moho::ArmyBlueprintStatTree& tree
+  )
+  {
+    fa::vector<std::pair<const moho::RUnitBlueprint*, float>> entries;
+    entries.reserve(tree.size());
+    for (const auto& entry : tree) {
+      if (entry.first != nullptr) {
+        entries.push_back(std::pair<const moho::RUnitBlueprint*, float>(entry.first, entry.second));
+      }
+    }
+    fa::sort(entries.data(), entries.data() + entries.size(), [](const auto& lhs, const auto& rhs) {
+      return lhs.first->mCategoryBitIndex < rhs.first->mCategoryBitIndex;
+    });
+    return entries;
   }
 
   void CollectBlueprintStatKeys(
@@ -389,12 +414,12 @@ namespace moho
     LuaPlus::LuaObject blueprints;
     blueprints.AssignNewTable(state, 0, 0);
 
-    for (const auto& entry : mBlueprintStats) {
+    // Engine addition: in ordinal order, not address order (BlueprintStatsInOrdinalOrder): the
+    // insertion order decides where colliding keys land, and so the table's pairs() order.
+    for (const auto& entry : BlueprintStatsInOrdinalOrder(mBlueprintStats)) {
       const RUnitBlueprint* const blueprint = entry.first;
-      if (blueprint != nullptr) {
-        const fa::string value = gpg::STR_Printf("%.2f", entry.second);
-        blueprints.SetString(blueprint->mBlueprintId.c_str(), value.c_str());
-      }
+      const fa::string value = gpg::STR_Printf("%.2f", entry.second);
+      blueprints.SetString(blueprint->mBlueprintId.c_str(), value.c_str());
     }
 
     outObject->SetObject("Blueprints", &blueprints);
@@ -409,13 +434,11 @@ namespace moho
       return 0.0f;
     }
 
+    // Engine addition: summed in ordinal order, not address order (BlueprintStatsInOrdinalOrder):
+    // the damage lanes have fractions, so the order changes the rounding of the float sum.
     float total = 0.0f;
-    for (const auto& entry : mBlueprintStats) {
+    for (const auto& entry : BlueprintStatsInOrdinalOrder(mBlueprintStats)) {
       const RUnitBlueprint* const blueprint = entry.first;
-      if (blueprint == nullptr) {
-        continue;
-      }
-
       if (categorySet->mBits.Contains(static_cast<unsigned int>(blueprint->mCategoryBitIndex))) {
         total += entry.second;
       }
