@@ -125,7 +125,18 @@ namespace moho::sfd
         queuedBytes += frame->bgra.size();
       for (const auto& frame : audio)
         queuedBytes += frame.samples.size() * sizeof(std::int16_t);
-      if (video.size() > 120 || audio.size() > 512 || queuedBytes > 128 * 1024 * 1024)
+      std::size_t queueLimit = 128 * 1024 * 1024;
+#if !defined(_WIN32)
+      // Linux: room for a second of video whatever its size. Tick keeps half a second decoded ahead,
+      // and frames that fell due while this thread was stalled still count here until TakeDueFrames:
+      // the main menu's 1824x1024 background (7.5 MB a frame) then queues 18 frames, 134 MB, past
+      // 128 MB, and stops (seen with a software Vulkan driver keeping every core busy).
+      queueLimit = std::max<std::size_t>(
+        queueLimit, std::size_t{32} * static_cast<std::size_t>(metadata.header.width) *
+                      static_cast<std::size_t>(metadata.header.height) * 4
+      );
+#endif
+      if (video.size() > 120 || audio.size() > 512 || queuedBytes > queueLimit)
         throw std::runtime_error("Excessive SFD stream interleave");
     }
     void SupplyAudio()
