@@ -10,7 +10,8 @@ the same code as on Windows and gives the same results, bit for bit (see [Determ
   save and load, the score screen.
 - Replays: the Replay menu, `/replay <file>.scfareplay`, the replay timeline, speed up and down.
 - Input: mouse (clicks, drag-select, wheel zoom), keyboard (hotkeys, arrow-key pan, chat and text
-  fields), windowed mode (fullscreen goes through SDL too but has not been tried yet).
+  fields), windowed and full screen (`/fullscreen` or the video options: the window covers the
+  desktop at its own mode, borderless; no display mode is changed).
 - Sound and music.
 - Preferences, saved games and replays are written and read back (see [Files](#files)).
 
@@ -23,8 +24,9 @@ Not there yet:
   and the main menu's background stays black.
 - The map editor and the Windows tool windows (log window, Lua debugger, emitter editor).
 
-The client has been tested in a container (Xvfb with Mesa's software Vulkan driver, lavapipe),
-not yet on a desktop with a GPU or under Wayland. Reports are welcome.
+The client has been tested in a container (Xvfb with Mesa's software Vulkan driver, lavapipe) and
+on a Wayland and X11 desktop (WSLg on Windows 11, software Vulkan), not yet with a GPU driver.
+Reports are welcome: [the GPU check](#checking-a-gpu) below does the testing and packs the logs.
 
 ## Building
 
@@ -98,3 +100,19 @@ Linux client matched the Linux headless runner on every beat.
 
 The engine is x86-64 only: the x87 maths is assembly (`legacy/math/X87Math64.S`), so an ARM build
 would need it emulated first.
+
+## Checking a GPU
+
+`tools/linux-build/gpu-check/gpu-check.sh` tests a machine in one go, from any Linux desktop (a live
+USB is enough; for an NVIDIA card pick a system that ships NVIDIA's driver, such as Pop!_OS's NVIDIA
+image). It reports the system and the Vulkan device, plays FAF replay 27796180 (8 players, downloaded
+from replay.faforever.com) flat out and compares every hashed beat with the Windows build's
+checksums (`27796180.checksums`), plays it at normal speed with the render profiler on, and packs
+the logs into one archive:
+
+```sh
+tools/linux-build/gpu-check/gpu-check.sh --game <folder with faf>     --fa <Forged Alliance install> --faf <FAF data folder>
+```
+
+The Forged Alliance install and FAF's `C:\ProgramData\FAForever` can be read straight from a
+mounted Windows drive.
