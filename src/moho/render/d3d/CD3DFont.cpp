@@ -34,11 +34,22 @@
 #include "moho/render/font/MsdfTextGpuRenderer.h"
 #include "moho/render/textures/CD3DDynamicTextureSheet.h"
 #include "moho/render/textures/DXTCodec.h"
+#if !defined(_WIN32)
+// Linux client: no GDI. A font is a FreeType face (its file found by face name, the game's fonts first),
+// its metrics and advances are GDI's rules applied to the font's tables, and its glyphs come from FreeType
+// into the same scratch pixels GDI drew into; screen text draws from MSDF atlases as on Windows.
+#include "moho/render/font/FontFaceLinux.h"
+#ifndef RGB
+#define RGB(r, g, b) \
+  (static_cast<COLORREF>(static_cast<BYTE>(r) | (static_cast<DWORD>(static_cast<BYTE>(g)) << 8) | (static_cast<DWORD>(static_cast<BYTE>(b)) << 16)))
+#endif
+#endif
 
 namespace moho
 {
   namespace
   {
+#if defined(_WIN32) // GDI's glyphs and the cache of them; the Linux client rasterizes with FreeType
     /**
      * Engine addition: `ren_GlyphBitmapRead`. A new character's glyph is read from the
      * scratch bitmap with one GetBitmapBits call instead of one GetPixel per pixel; the pixels
@@ -319,6 +330,7 @@ namespace moho
       AddValue(hash, static_cast<std::uint32_t>(character));
       return hash.Value();
     }
+#endif // defined(_WIN32)
 
     /**
      * Engine addition: `ren_MsdfText` (issue #307). Screen-space text at `ren_MsdfTextMinSize` pixels or
@@ -721,6 +733,7 @@ namespace moho
       return true;
     }
 
+#if defined(_WIN32)
     /**
      * The `sampleWidth` x `sampleHeight` corner of the 32-bit scratch bitmap as GetPixel
      * COLORREFs (0x00BBGGRR); the rest of `out` stays zero, as the GetPixel loop leaves it.
@@ -753,6 +766,7 @@ namespace moho
       }
       return true;
     }
+#endif // defined(_WIN32)
 
     struct FontLookup
     {
@@ -1015,7 +1029,7 @@ namespace moho
      * What it does:
      * Computes element pointer for one indexed kerning-pair slot.
      */
-    [[nodiscard]] CD3DFont::SKerningPair* GetKerningPairAt(CD3DFont::SKerningPair* const begin, const std::size_t index)
+    [[maybe_unused]] [[nodiscard]] CD3DFont::SKerningPair* GetKerningPairAt(CD3DFont::SKerningPair* const begin, const std::size_t index)
     {
       return begin + index;
     }
@@ -1068,7 +1082,7 @@ namespace moho
      * What it does:
      * Initializes one kerning-pair buffer to requested count with zero fill.
      */
-    void InitKerningPairBufferZeroFill(const std::size_t count, CD3DFont::KerningPairVector& out)
+    [[maybe_unused]] void InitKerningPairBufferZeroFill(const std::size_t count, CD3DFont::KerningPairVector& out)
     {
       const CD3DFont::SKerningPair fill{};
       (void)InitKerningPairBuffer(count, out, fill);
@@ -1380,15 +1394,27 @@ namespace moho
 
     // A mod's family never reaches GDI; its name means nothing there anyway, and its file was never loaded there.
     const bool isModFace = lookup.mFace.compare(0u, 4u, "mod:") == 0;
+#if defined(_WIN32)
     const HFONT createdWin32Font =
       CreateFontA(-pointSize, 0, 0, 0, 0, 0, 0, 0, 1u, 0, 0, 4u, 0, isModFace ? kModFontFallbackFace : lookup.mFace.c_str());
+#else
+    // Linux client: the "HFONT" is a FreeType face at what CreateFont(-pointSize) means, pointSize pixels to the em.
+    // A mod's font still never reaches it (only the cook, with its limits, opens a mod's file): until its atlas is
+    // here it measures and draws as the default face, as GDI's font does on Windows.
+    const HFONT createdWin32Font =
+      static_cast<HFONT>(LinuxFontFace::Open(isModFace ? kModFontFallbackFace : lookup.mFace.c_str(), pointSize));
+#endif
     if (createdWin32Font == nullptr) {
       return {};
     }
 
     CD3DFont* const createdFont = new (std::nothrow) CD3DFont(createdWin32Font);
     if (createdFont == nullptr) {
+#if defined(_WIN32)
       DeleteObject(createdWin32Font);
+#else
+      delete static_cast<LinuxFontFace*>(createdWin32Font);
+#endif
       return {};
     }
 
@@ -1440,6 +1466,21 @@ namespace moho
   {
     InitializeGlyphPageCache(mCharInfo);
 
+#if !defined(_WIN32)
+    // Linux client: GDI's TEXTMETRIC from the face's own tables (FontFaceLinux.cpp). No DC, no scratch bitmap and
+    // no kerning pairs (nothing reads them; text is laid out by advances alone, as on Windows).
+    if (const auto* const face = static_cast<const LinuxFontFace*>(mFont); face != nullptr) {
+      const SLinuxFontMetrics& metrics = face->Metrics();
+      mHeight = metrics.mHeight;
+      mAscent = metrics.mAscent;
+      mDescent = metrics.mDescent;
+      mInternalLeading = metrics.mInternalLeading;
+      mExternalLeading = metrics.mExternalLeading;
+      mAveCharWidth = metrics.mAveCharWidth;
+      mOverhang = 0.0f; // GDI's is 0 for TrueType: only raster fonts synthesize bold or italic
+      mIsTruetype = metrics.mIsTrueType;
+    }
+#else
     mDeviceContext = CreateCompatibleDC(nullptr);
     if (mDeviceContext == nullptr) {
       return;
@@ -1487,6 +1528,7 @@ namespace moho
     }
 
     SortKerningPairsByPackedKey(mKerningPairs);
+#endif
   }
 
   /**
@@ -1514,16 +1556,22 @@ namespace moho
    */
   CD3DFont::~CD3DFont()
   {
+#if defined(_WIN32)
     {
       const std::lock_guard<std::mutex> lock(gFontIdentityLock);
       FontIdentities().erase(this);
     }
+#endif
     sMsdfBindings.erase(this);
 
     // FUN_004272F0: the member-empty `operator=` release of the kerning vector.
     mKerningPairs = CD3DFont::KerningPairVector{};
     DestroyGlyphPageCache(mCharInfo);
 
+#if !defined(_WIN32)
+    delete static_cast<LinuxFontFace*>(mFont); // Linux client: the FreeType face; no DC or bitmap was made
+    mFont = nullptr;
+#else
     if (mFont != nullptr) {
       DeleteObject(mFont);
       mFont = nullptr;
@@ -1538,6 +1586,7 @@ namespace moho
       DeleteObject(mDeviceContext);
       mDeviceContext = nullptr;
     }
+#endif
   }
 
   /**
@@ -1560,6 +1609,14 @@ namespace moho
     }
 
     SCharInfo& charInfo = page[static_cast<std::uint8_t>(chText & 0xFFu)];
+#if !defined(_WIN32)
+    // Linux client: the FreeType face stands where the DC did. (No glyph cache: FreeType is quick, and the cache
+    // keys GDI's output.)
+    LinuxFontFace* const linuxFace = static_cast<LinuxFontFace*>(mFont);
+    if (charInfo.mTex || linuxFace == nullptr) {
+      return charInfo;
+    }
+#else
     if (charInfo.mTex || mDeviceContext == nullptr) {
       return charInfo;
     }
@@ -1599,12 +1656,17 @@ namespace moho
     }
 
     (void)SetTextAlign(mDeviceContext, 0x18u);
+#endif
     const int baselineAscent = static_cast<int>(std::ceil(mAscent + 1.0f));
     const int baselineDescent = static_cast<int>(std::ceil(mDescent));
 
+#if !defined(_WIN32)
+    float advance = linuxFace->Advance(chText); // what DrawText(DT_CALCRECT) measures: whole pixels
+#else
     RECT textRect{};
     (void)DrawTextW(mDeviceContext, &chText, 1, &textRect, 0xC20u);
     float advance = static_cast<float>(textRect.right - textRect.left);
+#endif
 
     // Engine addition (issue #304): a mod's font, once its atlas is here, has its own advances and small bitmaps.
     const SMsdfStrike* modStrike = nullptr;
@@ -1638,6 +1700,14 @@ namespace moho
       glyphHeight = kGlyphScratchHeight;
     }
 
+#if !defined(_WIN32)
+    std::array<COLORREF, static_cast<std::size_t>(kGlyphScratchWidth * kGlyphScratchHeight)> pixels{};
+    const int sampleWidth = (std::min)(glyphWidth + 4, kGlyphScratchWidth);
+    const int sampleHeight = (std::min)(glyphHeight + 4, kGlyphScratchHeight);
+    // White on black at the pen GDI's DrawText had (baseline at baselineAscent, pen at baselineX). Kept inside the
+    // box whose edges the checks below want black: ink past it would be trimmed away anyway.
+    linuxFace->Draw(chText, pixels.data(), kGlyphScratchWidth, baselineX, baselineAscent, 1, 1, glyphWidth, glyphHeight);
+#else
     RECT clearRect{};
     clearRect.right = glyphWidth + 4;
     clearRect.bottom = glyphHeight + 4;
@@ -1681,6 +1751,7 @@ namespace moho
     } else {
       readWithGetPixel(pixels);
     }
+#endif
 
     if (modStrikeGlyph != nullptr) {
       // The rest of this function only sees pixels, so a mod's bitmap takes GDI's place here and every
@@ -1842,6 +1913,7 @@ namespace moho
     charInfo.mV5 = static_cast<float>(baselineAscent - yMin);
     charInfo.mAdvance = advance;
 
+#if defined(_WIN32)
     if (glyphKey != 0 && ren_GlyphCache) {
       SCachedGlyph rasterized;
       rasterized.mBlockWidth = static_cast<std::uint16_t>(blockWidth);
@@ -1865,6 +1937,7 @@ namespace moho
         GlyphCache().Add(glyphKey, std::move(rasterized));
       }
     }
+#endif
     return charInfo;
   }
 
@@ -1993,9 +2066,13 @@ namespace moho
 
   void REN_SaveGlyphCache(const bool now)
   {
+#if defined(_WIN32)
     if (ren_GlyphCache) {
       GlyphCache().SaveIfIdle(now);
     }
+#else
+    (void)now; // Linux client: no glyph cache (it holds GDI's glyphs)
+#endif
   }
 
   /**

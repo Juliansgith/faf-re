@@ -37,6 +37,11 @@
 #include "moho/misc/FileWaitHandleSet.h"
 #include "moho/misc/StartupHelpers.h"
 #include "moho/render/camera/VTransform.h"
+#if !defined(_WIN32)
+// The Linux client: the XACT interfaces on FAudio's FACT, and X3DAudio as F3DAudio.
+#include <F3DAudio.h>
+#include "moho/audio/AudioFactBackend.h"
+#endif
 
 /**
  * Address: 0x00BC67C0 (FUN_00BC67C0, dynamic initializer for `sSoundConfiguration`)
@@ -82,6 +87,7 @@ namespace
     ) = nullptr;
   };
 
+#if defined(_WIN32)
   const X3DAudioFunctions& X3DAudio()
   {
     static const X3DAudioFunctions functions = [] {
@@ -106,6 +112,45 @@ namespace
     }();
     return functions;
   }
+#else
+  /**
+   * Engine addition (faf-neural-ai, Linux client): X3DAudio is FAudio's F3DAudio, linked in. Its
+   * structures are X3DAudio's (pack 1, the same fields and the same x64 offsets as Audio3DListener,
+   * Audio3DEmitter, Audio3DDspSettings and the distance curve) and so are the calculate flags.
+   */
+  void F3DAudioInitializeThunk(const std::uint32_t speakerChannelMask, const float speedOfSound, void* const instance)
+  {
+    F3DAudioInitialize(speakerChannelMask, speedOfSound, static_cast<std::uint8_t*>(instance));
+  }
+
+  void F3DAudioCalculateThunk(
+    const void* const instance,
+    const moho::Audio3DListener* const listener,
+    const moho::Audio3DEmitter* const emitter,
+    const std::uint32_t flags,
+    moho::Audio3DDspSettings* const dspSettings
+  )
+  {
+    F3DAudioCalculate(
+      static_cast<const std::uint8_t*>(instance),
+      reinterpret_cast<const F3DAUDIO_LISTENER*>(listener),
+      reinterpret_cast<const F3DAUDIO_EMITTER*>(emitter),
+      flags,
+      reinterpret_cast<F3DAUDIO_DSP_SETTINGS*>(dspSettings)
+    );
+  }
+
+  const X3DAudioFunctions& X3DAudio()
+  {
+    static const X3DAudioFunctions functions = [] {
+      X3DAudioFunctions linked;
+      linked.mInitialize = &F3DAudioInitializeThunk;
+      linked.mCalculate = &F3DAudioCalculateThunk;
+      return linked;
+    }();
+    return functions;
+  }
+#endif
 } // namespace
 
 namespace moho
@@ -550,6 +595,7 @@ namespace
     return true;
   }
 
+#if defined(_WIN32)
   // Retail's streaming wave-bank open flags: FILE_FLAG_OVERLAPPED |
   // FILE_FLAG_NO_BUFFERING (0x004DAE53: push 60000000h).
   constexpr DWORD kStreamingWaveBankOpenFlags = FILE_FLAG_OVERLAPPED | FILE_FLAG_NO_BUFFERING;
@@ -615,6 +661,17 @@ namespace
     (void)::CloseHandle(file);
     return openFlags;
   }
+#else
+  /**
+   * Engine addition (faf-neural-ai, Linux client): FACT reads a streaming bank through
+   * fact::ReadStreamingFile, positional reads on this handle through the page cache, with no
+   * sector alignment to meet, so the bank opens as a plain file.
+   */
+  [[nodiscard]] DWORD ResolveStreamingWaveBankOpenFlags(const char*, const gpg::StrArg)
+  {
+    return FILE_ATTRIBUTE_NORMAL;
+  }
+#endif
 
   /**
    * Address: 0x004DADF0 (FUN_004DADF0, Moho::RWaveBankResStreaming::LoadBank)
@@ -1364,6 +1421,7 @@ namespace
 
 namespace moho
 {
+#if defined(_WIN32)
   namespace
   {
     const IID kXactAuditionComInterfaceClsid =
@@ -1427,6 +1485,26 @@ namespace moho
     }
     return result;
   }
+#else
+  /**
+   * Engine addition (faf-neural-ai, Linux client): the engine is FAudio's FACT behind the recovered
+   * XACT interfaces (AudioFactBackend.h). FACT has one engine: `/xactdebug` and `/audition` (XACT's
+   * debug and auditioning engines, for Microsoft's XACT tool) make the same one.
+   */
+  int func_CreateXACTinstance(const std::uint32_t mode, void** const outEngine)
+  {
+    if ((mode & 3u) != 0u) {
+      gpg::Logf("SND: FACT has no debug or audition engine; /xactdebug and /audition use the normal one");
+    }
+    IXACTEngine* engine = nullptr;
+    const int result = fact::Engine::Create(&engine);
+    *outEngine = engine;
+    if (result >= 0) {
+      gpg::Logf("SND: XACT engine: FAudio FACT %d.%02d", FAUDIO_MAJOR_VERSION, FAUDIO_MINOR_VERSION);
+    }
+    return result;
+  }
+#endif
 
   void func_RetreiveXACTCOMInterface(AudioEngineImpl* impl);
   void func_LoadSoundPath(AudioEngineImpl* impl, gpg::StrArg voicePath);
@@ -2046,6 +2124,11 @@ namespace moho
       }
     }
 
+#if !defined(_WIN32)
+    // Engine addition (faf-neural-ai, Linux client): there is no DirectSound speaker setting. The
+    // configuration stays stereo (3), and AudioEngine's ctor sizes the 3D matrix from the output
+    // FACT really opened (GetFinalMixFormat), as it does on Windows.
+#else
     LPDIRECTSOUND directSound = nullptr;
     if (::DirectSoundCreate(nullptr, &directSound, nullptr) >= 0) {
       DWORD speakerConfig = 0;
@@ -2075,6 +2158,7 @@ namespace moho
     } else {
       gpg::Warnf("Failed to create DirectSound.");
     }
+#endif
   }
 
   /**

@@ -154,7 +154,7 @@ namespace gpg::gal::vulkan
     FAF_VK_RAY_FUNCTIONS(FAF_VK_DECLARE)
 #undef FAF_VK_DECLARE
 
-    /** Loads vulkan-1.dll and the global functions; false when there is no Vulkan. */
+    /** Loads vulkan-1.dll (libvulkan.so.1 on Linux) and the global functions; false when there is no Vulkan. */
     [[nodiscard]] bool LoadGlobal();
     /** False when a required instance function is missing. */
     [[nodiscard]] bool LoadInstance(VkInstance instance);

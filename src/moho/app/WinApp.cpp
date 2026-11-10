@@ -4,7 +4,9 @@
 
 #include "platform/Platform.h"
 
+#if defined(_WIN32)
 #include <DbgHelp.h>
+#endif
 
 #include <algorithm>
 #include <cstdarg>
@@ -15,7 +17,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <cwchar>
+#if defined(_WIN32)
 #include <intrin.h>
+#endif
 #include <limits>
 #include <mutex>
 #include <new>
@@ -27,9 +31,15 @@
 #include <vector>
 
 #include <float.h>
+#if defined(_WIN32)
 #include <commctrl.h>
 #include <objbase.h>
 #include <TlHelp32.h>
+#else
+// Engine addition (faf-neural-ai): the native Linux client's shell is SDL's (platform/sdl): the clipboard
+// and the event pump below.
+#include <SDL3/SDL.h>
+#endif
 
 #include "boost/mutex.h"
 #include "CWaitHandleSet.h"
@@ -87,9 +97,16 @@ namespace
   constexpr float kInfiniteWakeupMs = std::numeric_limits<float>::infinity();
 
   moho::IWinApp* sSupComApp = nullptr;
+#if defined(_WIN32)
   HHOOK sWindowHook = nullptr;
+#else
+  // the registry's value types PLAT_SetRegistryValue* name (no registry on the Linux client)
+  constexpr std::uint32_t REG_SZ = 1u;
+  constexpr std::uint32_t REG_DWORD = 4u;
+#endif
   gpg::time::Timer wakeupTimer;
   float wakeupTimerDur = kInfiniteWakeupMs;
+#if defined(_WIN32)
   [[maybe_unused]] constexpr DWORD kPlatformSymbolHandlerOptions =
     SYMOPT_FAIL_CRITICAL_ERRORS | // suppress critical-error UI while probing symbols.
     SYMOPT_LOAD_LINES | // include source line records for resolved addresses.
@@ -99,6 +116,7 @@ namespace
     kPlatformSymbolHandlerOptions == 0x216u,
     "PLAT_Init symbol options must match recovered SymSetOptions(0x216)"
   );
+#endif
 
   /**
    * The splash screen WINX_InitSplash shows (0x010A9BE4), a VC8
@@ -976,8 +994,10 @@ namespace
     return true;
   }();
 
+#if defined(_WIN32)
   constexpr wchar_t kDxdiagOutputFileName[] = L"dxdiag.txt";
   constexpr wchar_t kDxdiagCommandPrefix[] = L"dxdiag.exe ";
+#endif
 
   /**
    * Address: 0x004A0EC0 (FUN_004A0EC0, sub_4A0EC0)
@@ -1272,6 +1292,7 @@ namespace
     return outPair;
   }
 
+#if defined(_WIN32) // the registry, dxdiag and the Windows version check: Windows only
   struct ParsedRegistryPath
   {
     HKEY rootKey = HKEY_CURRENT_USER;
@@ -1354,6 +1375,8 @@ namespace
     return BuildWideStringPlusWideLiteral(std::wstring(kDxdiagCommandPrefix), outputPath.c_str());
   }
 
+#endif // _WIN32
+
   [[nodiscard]]
   std::wstring GetErrorReportOutputDirSnapshot()
   {
@@ -1361,6 +1384,8 @@ namespace
     // is moho/misc/WinPlatform.cpp's.
     return moho::PLAT_GetErrorReportOutputDir();
   }
+
+#if defined(_WIN32)
 
   /**
    * Address: 0x004A1030 (FUN_004A1030, sub_4A1030)
@@ -1417,6 +1442,12 @@ namespace
     versionInfo.dwOSVersionInfoSize = sizeof(versionInfo);
     return !::GetVersionExW(&versionInfo) || versionInfo.dwPlatformId != VER_PLATFORM_WIN32_WINDOWS;
   }
+#else
+  bool HasCorrectPlatform()
+  {
+    return true;
+  }
+#endif // _WIN32
 
   /**
    * Address: 0x004F1540 (FUN_004F1540, func_ProbeWakeTimer)
@@ -1461,6 +1492,15 @@ namespace
    */
   bool DispatchPendingMessage()
   {
+#if !defined(_WIN32)
+    // The native Linux client: one SDL event, handed to its window as the Windows messages it stood
+    // for (platform/sdl/SdlApp.cpp); a WM_QUIT (PostQuitMessage) ends the loop there too.
+    if (!wxTheApp->Pending()) {
+      return false;
+    }
+    wxTheApp->Dispatch();
+    return true;
+#else
     MSG message{};
     if (::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE) == FALSE) {
       return false;
@@ -1471,6 +1511,7 @@ namespace
     }
     wxTheApp->DoMessage(reinterpret_cast<WXMSG*>(&message));
     return true;
+#endif
   }
 
   DWORD ComputeWaitTimeoutMs()
@@ -1494,6 +1535,7 @@ namespace
    * Suppresses left/right Windows keys for low-level keyboard hook events when
    * app-level key suppression is enabled; otherwise forwards to next hook.
    */
+#if defined(_WIN32) // the low-level keyboard hook and the crash dialog: Windows only
   LRESULT CALLBACK WindowHook(const int code, const WPARAM wParam, const LPARAM lParam)
   {
     if (code == HC_ACTION && sSupComApp->AppDoSuppressWindowsKeys() && wParam >= WM_KEYDOWN && wParam <= WM_KEYUP) {
@@ -1938,6 +1980,7 @@ namespace
     gpg::diag::ShowCrashReportDialog(gpg::diag::CrashLatestReportPath());
     return EXCEPTION_CONTINUE_SEARCH;
   }
+#endif // _WIN32
 
 } // namespace
 
@@ -1954,6 +1997,10 @@ bool moho::WIN_CopyToClipboard(const wchar_t* const text)
   if (text == nullptr) {
     return false;
   }
+#if !defined(_WIN32)
+  // the native Linux client: SDL's clipboard, UTF-8
+  return SDL_SetClipboardText(gpg::STR_WideToUtf8(text).c_str());
+#else
 
   const std::size_t characterCount = std::wcslen(text) + 1;
   const std::size_t payloadBytes = characterCount * sizeof(wchar_t);
@@ -1988,6 +2035,7 @@ bool moho::WIN_CopyToClipboard(const wchar_t* const text)
 
   ::CloseClipboard();
   return true;
+#endif
 }
 
 /**
@@ -2136,6 +2184,7 @@ void moho::WIN_AppExecute(IWinApp* const app)
   }
 
   sSupComApp = app;
+#if defined(_WIN32)
   const HMODULE module = ::GetModuleHandleW(nullptr);
   sWindowHook = ::SetWindowsHookExW(WH_KEYBOARD_LL, &WindowHook, module, 0);
 
@@ -2145,6 +2194,10 @@ void moho::WIN_AppExecute(IWinApp* const app)
     reinterpret_cast<LPCWSTR>(&WindowHook),
     &selfModule
   );
+#else
+  // The native Linux client: no keyboard hook (the desktop keeps its Super key), no module handle.
+  void* const selfModule = nullptr;
+#endif
   // enterLoop = false: wx initialises and builds the MohoApp, and the loop
   // below pumps it (0x004F2117, wxEntry 0x00992FF0).
   wxEntry(reinterpret_cast<WXHINSTANCE>(selfModule), nullptr, nullptr, 0, false);
@@ -2160,15 +2213,22 @@ void moho::WIN_AppExecute(IWinApp* const app)
   }
 
   THREAD_SetAffinity(true);
+#if defined(_WIN32)
   ::InitCommonControls();
   ::CoInitialize(nullptr);
+#endif
   PLAT_Init();
   PLAT_CatchStructuredExceptions();
   wakeupTimer.Reset();
   wakeupTimerDur = kInfiniteWakeupMs;
 
   if (!app->Init()) {
+#if defined(_WIN32)
     ::TerminateProcess(::GetCurrentProcess(), 1u);
+#else
+    std::fflush(nullptr);
+    std::_Exit(1);
+#endif
   }
   // 0x004F2227..0x004F2233: wxApp::m_exitOnFrameDelete (+0x44) = Yes and
   // m_keepGoing (+0x5C) = TRUE, the flag this loop runs on.
@@ -2245,10 +2305,12 @@ void moho::WIN_AppExecute(IWinApp* const app)
     wxApp::CleanUp();
   }
 
+#if defined(_WIN32)
   if (sWindowHook != nullptr) {
     ::UnhookWindowsHookEx(sWindowHook);
     sWindowHook = nullptr;
   }
+#endif
 
   RES_Exit();
   sSupComApp = nullptr;
@@ -2263,7 +2325,12 @@ void moho::WIN_AppExecute(IWinApp* const app)
  */
 void moho::PLAT_CatchStructuredExceptions()
 {
+#if defined(_WIN32)
   (void)::SetUnhandledExceptionFilter(&TopLevelExceptionFilter);
+#else
+  // the native Linux client: the fatal signals are gpg/core/diagnostics/posix's
+  // (InstallCrtDiagnosticHooks), which write the crash report
+#endif
 }
 
 
@@ -2354,6 +2421,13 @@ bool moho::PLAT_SetRegistryValue(
   if (keyPath == nullptr) {
     return false;
   }
+#if !defined(_WIN32)
+  // the native Linux client has no registry
+  (void)data;
+  (void)dataSize;
+  (void)valueType;
+  return false;
+#else
 
   // The shipped body builds a mutable copy of the path in a byte vector so
   // `ParseRegistryPathInPlace` can split it; the vector frees itself on every
@@ -2397,6 +2471,7 @@ bool moho::PLAT_SetRegistryValue(
 
   (void)::RegCloseKey(openedKey);
   return true;
+#endif
 }
 
 /**
@@ -2448,6 +2523,9 @@ std::uint32_t moho::PLAT_GetRegistryValue(
   if (keyPath == nullptr || outData == nullptr) {
     return 0;
   }
+#if !defined(_WIN32)
+  return 0; // the native Linux client has no registry
+#else
 
   // The shipped body builds a mutable copy of the path in a byte vector so
   // `ParseRegistryPathInPlace` can split it; the vector frees itself on every
@@ -2482,6 +2560,7 @@ std::uint32_t moho::PLAT_GetRegistryValue(
 
   (void)::RegCloseKey(openedKey);
   return bytesRead;
+#endif
 }
 
 /**
@@ -2496,6 +2575,16 @@ std::uint32_t moho::PLAT_GetRegistryValue(
  */
 fa::string moho::WIN_GetClipboardText()
 {
+#if !defined(_WIN32)
+  // the native Linux client: SDL's clipboard
+  if (!SDL_HasClipboardText()) {
+    return {};
+  }
+  char* const text = SDL_GetClipboardText();
+  fa::string clipboardText = text != nullptr ? fa::string(text) : fa::string();
+  SDL_free(text);
+  return clipboardText;
+#else
   const HWND ownerWindow = sMainWindow != nullptr
     ? reinterpret_cast<HWND>(static_cast<std::uintptr_t>(sMainWindow->GetHandle()))
     : nullptr;
@@ -2516,6 +2605,7 @@ fa::string moho::WIN_GetClipboardText()
 
   (void)::CloseClipboard();
   return clipboardText;
+#endif
 }
 
 
@@ -2555,7 +2645,9 @@ void moho::WIN_ShowCrashDialog(
 
   void* contextRecord = nullptr;
   if (exceptionInfo != nullptr) {
+#if defined(_WIN32)
     contextRecord = exceptionInfo->ContextRecord;
+#endif
   } else {
     skipCallstackFrames += 2;
   }
@@ -2585,6 +2677,11 @@ void moho::WIN_ShowCrashDialog(
   details << recentLogLines.c_str();
 
   const std::string bodyText = details.str();
+#if !defined(_WIN32)
+  // the native Linux client has no crash dialog: the text goes to stderr (and the log above)
+  std::fprintf(stderr, "%s\n\n%s\n", caption != nullptr ? static_cast<const char*>(caption) : "Crash", bodyText.c_str());
+  std::fflush(stderr);
+#else
   CrashDialogInitData dialogInit{
     caption != nullptr ? caption : "Crash",
     bodyText.c_str(),
@@ -2608,6 +2705,7 @@ void moho::WIN_ShowCrashDialog(
     gpg::Logf("DialogBoxParam failed: %s", dialogError.c_str());
     WIN_OkBox(dialogInit.caption, dialogInit.body);
   }
+#endif
 }
 
 
@@ -2620,12 +2718,19 @@ void moho::WIN_ShowCrashDialog(
  */
 bool moho::WIN_YesNoBox(const gpg::StrArg caption, const gpg::StrArg text)
 {
+#if !defined(_WIN32)
+  // the native Linux client shows no message boxes: logged, and answered No
+  gpg::Logf("%s: %s (answered No)", caption != nullptr ? static_cast<const char*>(caption) : "",
+            text != nullptr ? static_cast<const char*>(text) : "");
+  return false;
+#else
   const HWND ownerWindow = sMainWindow != nullptr
                              ? reinterpret_cast<HWND>(static_cast<std::uintptr_t>(sMainWindow->GetHandle()))
                              : nullptr;
   const std::wstring wideCaption = gpg::STR_Utf8ToWide(caption);
   const std::wstring wideText = gpg::STR_Utf8ToWide(text);
   return ::MessageBoxW(ownerWindow, wideText.c_str(), wideCaption.c_str(), 0x40004u) == IDYES;
+#endif
 }
 
 namespace
@@ -2635,12 +2740,20 @@ namespace
   // the main window when there is one, MB_SETFOREGROUND.
   void ShowOkBox(const gpg::StrArg caption, const gpg::StrArg text)
   {
+#if !defined(_WIN32)
+    // the native Linux client shows no message boxes: stderr and the log
+    std::fprintf(stderr, "%s: %s\n", caption != nullptr ? static_cast<const char*>(caption) : "",
+                 text != nullptr ? static_cast<const char*>(text) : "");
+    gpg::Logf("%s: %s", caption != nullptr ? static_cast<const char*>(caption) : "",
+              text != nullptr ? static_cast<const char*>(text) : "");
+#else
     const HWND ownerWindow = moho::sMainWindow != nullptr
                                ? reinterpret_cast<HWND>(static_cast<std::uintptr_t>(moho::sMainWindow->GetHandle()))
                                : nullptr;
     const std::wstring wideCaption = gpg::STR_Utf8ToWide(caption);
     const std::wstring wideText = gpg::STR_Utf8ToWide(text);
     (void)::MessageBoxW(ownerWindow, wideText.c_str(), wideCaption.c_str(), 0x40000u);
+#endif
   }
 
   [[maybe_unused]] const bool gOkBoxPresenterSet = (moho::sOkBoxPresenter = &ShowOkBox, true);
@@ -2799,6 +2912,10 @@ void moho::WINX_InitSplash(const gpg::StrArg filename)
  */
 void moho::WINX_PrecreateLogWindow()
 {
+#if !defined(_WIN32)
+  // the native Linux client builds no log window (moho/app/WWinLogWindow.cpp is a wx tool window)
+  return;
+#else
   if (sLogWindowTarget.dialog != nullptr) {
     return;
   }
@@ -2806,6 +2923,7 @@ void moho::WINX_PrecreateLogWindow()
   WWinLogWindow* const createdLogWindow = new WWinLogWindow();
   boost::mutex::scoped_lock lock(sLogWindowTarget.lock);
   sLogWindowTarget.dialog = createdLogWindow;
+#endif
 }
 
 /**

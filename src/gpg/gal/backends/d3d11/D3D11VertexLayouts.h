@@ -5,7 +5,12 @@
 #include <cstdint>
 #include <span>
 
+#if defined(_WIN32)
 #include <d3d11.h>
+#else
+// The Linux client compiles these tables for the Vulkan backend, without the Direct3D 11 SDK.
+#include "gpg/gal/backends/common/D3D11InputLayoutPosix.h"
+#endif
 
 namespace gpg::gal::d3d11
 {

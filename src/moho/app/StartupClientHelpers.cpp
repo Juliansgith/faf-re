@@ -8,6 +8,9 @@
 
 #include "moho/lua/CScrLuaInitForm.h"
 #include "moho/movie/sfd/IndependentSfdBackend.h"
+#if !defined(_WIN32)
+#include "moho/movie/sfd/DirectSoundMovieSink.h" // the Linux client's movie audio device (SDL)
+#endif
 #include "moho/misc/StartupHelpers.h"
 #include "legacy/containers/AutoPtr.h"
 #include "legacy/containers/Set.h"
@@ -17,7 +20,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cctype>
 #include <exception>
+#include <filesystem>
 #include <fstream>
 #include <ios>
 #include <limits>
@@ -40,8 +45,10 @@
 #include <Shlwapi.h>
 #include "gpg/core/utils/Global.h"
 #include "gpg/core/utils/Logging.h"
+#if defined(_WIN32) // the Direct3D backends (the Linux client renders with Vulkan)
 #include "gpg/gal/backends/d3d10/DeviceD3D10.hpp"
 #include "gpg/gal/backends/d3d9/DeviceD3D9.hpp"
+#endif
 #include "gpg/gal/Device.hpp"
 #include "gpg/gal/DeviceContext.hpp"
 #include "gpg/gal/Error.hpp"
@@ -1206,6 +1213,15 @@ void moho::CMovieManager::CreateDirectSound()
     return;
   }
 
+#if !defined(_WIN32)
+  // Engine addition (faf-neural-ai, Linux client): SDL audio in place of DirectSound; the movie
+  // sinks open their own streams on it (moho/movie/sfd/DirectSoundMovieSink.cpp), so there is no
+  // device-wide buffer to make. Without a playback device movies play silent, as here on Windows.
+  mDirectSound = moho::sfd::OpenMovieAudioDevice();
+  if (mDirectSound == nullptr) {
+    gpg::Logf("Failed to open SDL audio for movies.");
+  }
+#else
   if (FAILED(::DirectSoundCreate(nullptr, &mDirectSound, nullptr))) {
     gpg::Logf("Failed to create DirectSound.");
     return;
@@ -1237,6 +1253,7 @@ void moho::CMovieManager::CreateDirectSound()
     mDirectSound->Release();
     mDirectSound = nullptr;
   }
+#endif
 }
 
 /**
@@ -1267,6 +1284,11 @@ moho::CMovieManager::~CMovieManager()
 void moho::CMovieManager::ReleaseDirectSound()
 {
   ::ADXPC_SetupSoundDirectSound8(nullptr);
+#if !defined(_WIN32)
+  // The Linux client's SDL movie audio (CreateDirectSound); it never makes a buffer.
+  moho::sfd::CloseMovieAudioDevice(mDirectSound);
+  mDirectSound = nullptr;
+#else
   if (mPrimaryBuffer != nullptr) {
     mPrimaryBuffer->Release();
     mPrimaryBuffer = nullptr;
@@ -1275,6 +1297,7 @@ void moho::CMovieManager::ReleaseDirectSound()
     mDirectSound->Release();
     mDirectSound = nullptr;
   }
+#endif
 }
 
 /**
@@ -1864,6 +1887,48 @@ void moho::USER_GetSpecialFiles(
     throw std::runtime_error(gpg::STR_Printf("Unable to create directory %s", outDirectory.c_str()).to_std());
   }
 
+#if !defined(_WIN32)
+  // The native Linux client: the same scan with std::filesystem. FindFirstFile("<dir>*") also lists
+  // "." and "..", so the files directly in the folder come under the profile ".", as on Windows; the
+  // extension matches without regard to case, as Windows' pattern does.
+  {
+    namespace fs = std::filesystem;
+    const auto lower = [](std::string text) {
+      for (char& ch : text) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+      }
+      return text;
+    };
+    const std::string wantedExtension = lower("." + outExtension);
+    // The directory is Windows-style ('\\' between the Documents folder and "My Games\..."); the shim's
+    // file calls (CreateDirectoryW above, the game's own opens) read '\\' as '/', std::filesystem doesn't.
+    std::string scanDirectory = outDirectory;
+    std::replace(scanDirectory.begin(), scanDirectory.end(), '\\', '/');
+    std::vector<std::string> profiles{".", ".."};
+    std::error_code error;
+    for (fs::directory_iterator it(fs::path(scanDirectory), error), end; !error && it != end; it.increment(error)) {
+      std::error_code typeError;
+      if (it->is_directory(typeError)) {
+        profiles.push_back(it->path().filename().string());
+      }
+    }
+    if (error) {
+      throw std::runtime_error("Error finding prefs directories");
+    }
+    for (const std::string& profileName : profiles) {
+      std::error_code fileError;
+      for (fs::directory_iterator it(fs::path(scanDirectory) / profileName, fileError), end; !fileError && it != end;
+           it.increment(fileError)) {
+        const std::string fileName = it->path().filename().string();
+        if (fileName.size() >= wantedExtension.size() &&
+            lower(fileName.substr(fileName.size() - wantedExtension.size())) == wantedExtension) {
+          SubscriptStringToStringVectorMap(outFilesByProfile, profileName.c_str()).push_back(fileName.c_str());
+        }
+      }
+    }
+    return;
+  }
+#else
   const std::wstring profilePattern = gpg::STR_Utf8ToWide((outDirectory + "*").c_str());
   WIN32_FIND_DATAW profileFindData{};
   const HANDLE profileFindHandle = ::FindFirstFileW(profilePattern.c_str(), &profileFindData);
@@ -1905,6 +1970,7 @@ void moho::USER_GetSpecialFiles(
   }
 
   ::FindClose(profileFindHandle);
+#endif
 }
 
 /**

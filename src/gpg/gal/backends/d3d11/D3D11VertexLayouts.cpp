@@ -1,9 +1,16 @@
 #include "D3D11VertexLayouts.h"
 
+#if defined(_WIN32)
 #include "D3D11Common.h"
+#else
+#include "gpg/gal/backends/common/BackendErrors.h"
+#endif
 
 namespace gpg::gal::d3d11
 {
+#if !defined(_WIN32)
+  using backend::ThrowError; // D3D11Common.h's, without <d3d11.h>
+#endif
   namespace
   {
     constexpr D3D11_INPUT_ELEMENT_DESC kVertexLayoutElements_Format0[1] = {

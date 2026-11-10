@@ -8,7 +8,7 @@
 #include "gpg/gal/PlacedResources.h"
 #include "gpg/gal/backends/common/ImageCodec.h"
 #include "gpg/gal/backends/common/PipelineMemo.h"
-#include "gpg/gal/backends/d3d11/EffectSourceD3D11.h"
+#include "gpg/gal/backends/d3d11/EffectSourceD3D11.h" // the effect-source layer, Vulkan's too
 #include "gpg/gal/effects/EffectRuntime.h"
 #include "gpg/gal/effects/RayTracedShadows.h"
 #include "gpg/gal/effects/TextureFiltering.h"

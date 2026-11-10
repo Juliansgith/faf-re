@@ -6,7 +6,14 @@
 #include <algorithm>
 #include <cstring>
 
+#if defined(_WIN32)
 #include <objbase.h>
+#else
+// The Linux client: no WIC. DirectXTex reads DDS itself; PNG and BMP go through SDL 3's own codecs
+// (SDL_LoadPNG/SDL_SavePNG, SDL_LoadBMP/SDL_SaveBMP), JPG is not available. This file is built with
+// DirectXTex, without the POSIX <Windows.h> shim (its wsl/winadapter.h declares the same names).
+#include <SDL3/SDL.h>
+#endif
 
 #include "DirectXTex.h"
 
@@ -21,6 +28,104 @@ namespace gpg::gal::imaging
       return bytes >= 4U && std::memcmp(data, "DDS ", 4U) == 0;
     }
 
+#if !defined(_WIN32)
+    constexpr HRESULT kNotSupported = static_cast<HRESULT>(0x80070032U); // HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED)
+
+    [[nodiscard]] bool IsPng(const void* const data, const std::size_t bytes) noexcept
+    {
+      return bytes >= 8U && std::memcmp(data, "\x89PNG\r\n\x1a\n", 8U) == 0;
+    }
+
+    [[nodiscard]] bool IsBmp(const void* const data, const std::size_t bytes) noexcept
+    {
+      return bytes >= 2U && std::memcmp(data, "BM", 2U) == 0;
+    }
+
+    /** A PNG or BMP file as an RGBA8 SDL surface (R,G,B,A bytes); null for anything else. */
+    [[nodiscard]] SDL_Surface* LoadWithSdl(const void* const data, const std::size_t bytes)
+    {
+      const bool png = IsPng(data, bytes);
+      if (!png && !IsBmp(data, bytes)) {
+        return nullptr; // JPG (no decoder here), and TGA, which D3DX11 and WIC refuse as well
+      }
+      SDL_IOStream* const stream = SDL_IOFromConstMem(data, bytes);
+      if (stream == nullptr) {
+        return nullptr;
+      }
+      SDL_Surface* const loaded = png ? SDL_LoadPNG_IO(stream, true) : SDL_LoadBMP_IO(stream, true);
+      if (loaded == nullptr) {
+        return nullptr;
+      }
+      SDL_Surface* const converted = SDL_ConvertSurface(loaded, SDL_PIXELFORMAT_RGBA32);
+      SDL_DestroySurface(loaded);
+      return converted;
+    }
+
+    /** WIC's LoadFromWICMemory for PNG and BMP: the file as one R8G8B8A8_UNORM level. */
+    HRESULT LoadFromSdl(const void* const data, const std::size_t bytes, DirectX::ScratchImage& outImage)
+    {
+      SDL_Surface* const surface = LoadWithSdl(data, bytes);
+      if (surface == nullptr) {
+        return kNotSupported;
+      }
+      HRESULT result = outImage.Initialize2D(
+        DXGI_FORMAT_R8G8B8A8_UNORM, static_cast<std::size_t>(surface->w), static_cast<std::size_t>(surface->h), 1U, 1U
+      );
+      if (SUCCEEDED(result)) {
+        const DirectX::Image& level = *outImage.GetImage(0U, 0U, 0U);
+        const std::size_t rowBytes = static_cast<std::size_t>(surface->w) * 4U;
+        for (int row = 0; row < surface->h; ++row) {
+          std::memcpy(
+            level.pixels + static_cast<std::size_t>(row) * level.rowPitch,
+            static_cast<const std::uint8_t*>(surface->pixels) + static_cast<std::size_t>(row) * static_cast<std::size_t>(surface->pitch),
+            rowBytes
+          );
+        }
+      }
+      SDL_DestroySurface(surface);
+      return result;
+    }
+
+    /** WIC's SaveToWICMemory for PNG and BMP: `level` (R8G8B8A8 or B8G8R8A8, after any conversion) through SDL. */
+    HRESULT SaveWithSdl(const DirectX::Image& source, const bool png, std::vector<std::uint8_t>& outBytes)
+    {
+      DirectX::ScratchImage converted;
+      const DirectX::Image* level = &source;
+      if (source.format != DXGI_FORMAT_R8G8B8A8_UNORM && source.format != DXGI_FORMAT_B8G8R8A8_UNORM) {
+        const HRESULT result =
+          DirectX::Convert(source, DXGI_FORMAT_R8G8B8A8_UNORM, DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, converted);
+        if (FAILED(result)) {
+          return result;
+        }
+        level = converted.GetImage(0U, 0U, 0U);
+      }
+      SDL_Surface* const surface = SDL_CreateSurfaceFrom(
+        static_cast<int>(level->width), static_cast<int>(level->height),
+        level->format == DXGI_FORMAT_B8G8R8A8_UNORM ? SDL_PIXELFORMAT_BGRA32 : SDL_PIXELFORMAT_RGBA32, level->pixels,
+        static_cast<int>(level->rowPitch)
+      );
+      if (surface == nullptr) {
+        return E_FAIL;
+      }
+      SDL_IOStream* const stream = SDL_IOFromDynamicMem();
+      bool ok = stream != nullptr && (png ? SDL_SavePNG_IO(surface, stream, false) : SDL_SaveBMP_IO(surface, stream, false));
+      SDL_DestroySurface(surface);
+      if (ok) {
+        const Sint64 size = SDL_GetIOSize(stream);
+        ok = size > 0 && SDL_SeekIO(stream, 0, SDL_IO_SEEK_SET) == 0;
+        if (ok) {
+          outBytes.resize(static_cast<std::size_t>(size));
+          ok = SDL_ReadIO(stream, outBytes.data(), outBytes.size()) == outBytes.size();
+        }
+      }
+      if (stream != nullptr) {
+        SDL_CloseIO(stream);
+      }
+      return ok ? S_OK : E_FAIL;
+    }
+#endif
+
+#if defined(_WIN32)
     /** WIC needs COM on the calling thread; the loader threads may not have it. */
     class ComScope
     {
@@ -38,6 +143,7 @@ namespace gpg::gal::imaging
     private:
       HRESULT mResult;
     };
+#endif
 
     // Luminance expands to grey RGBA as D3DX11 does (a plain R8 would read as red).
     constexpr DirectX::DDS_FLAGS kDdsFlags = DirectX::DDS_FLAGS_EXPAND_LUMINANCE;
@@ -48,9 +154,13 @@ namespace gpg::gal::imaging
       if (IsDds(data, bytes)) {
         return DirectX::LoadFromDDSMemory(source, bytes, kDdsFlags, nullptr, outImage);
       }
+#if defined(_WIN32)
       // PNG, BMP, JPG. D3DX11 refuses TGA files, and so does WIC.
       const ComScope com;
       return DirectX::LoadFromWICMemory(source, bytes, DirectX::WIC_FLAGS_NONE, nullptr, outImage);
+#else
+      return LoadFromSdl(source, bytes, outImage);
+#endif
     }
 
     [[nodiscard]] std::uint32_t FullChain(const std::size_t width, const std::size_t height) noexcept
@@ -317,8 +427,18 @@ namespace gpg::gal::imaging
     if (IsDds(data, bytes)) {
       result = DirectX::GetMetadataFromDDSMemory(source, bytes, kDdsFlags, meta);
     } else {
+#if defined(_WIN32)
       const ComScope com;
       result = DirectX::GetMetadataFromWICMemory(source, bytes, DirectX::WIC_FLAGS_NONE, meta);
+#else
+      SDL_Surface* const surface = LoadWithSdl(data, bytes);
+      if (surface == nullptr) {
+        return kNotSupported;
+      }
+      meta.width = static_cast<std::size_t>(surface->w);
+      meta.height = static_cast<std::size_t>(surface->h);
+      SDL_DestroySurface(surface);
+#endif
     }
     if (SUCCEEDED(result)) {
       outWidth = static_cast<std::uint32_t>(meta.width);
@@ -351,6 +471,12 @@ namespace gpg::gal::imaging
       }
       level = *plain.GetImage(0U, 0U, 0U);
     }
+#if !defined(_WIN32)
+    if (format == FileFormat::Jpg) {
+      return kNotSupported; // no JPEG encoder in the Linux client
+    }
+    return SaveWithSdl(level, format == FileFormat::Png, outBytes);
+#else
     DirectX::WICCodecs codec = DirectX::WIC_CODEC_PNG;
     if (format == FileFormat::Bmp) {
       codec = DirectX::WIC_CODEC_BMP;
@@ -366,5 +492,6 @@ namespace gpg::gal::imaging
     const auto* const begin = blob.GetConstBufferPointer();
     outBytes.assign(begin, begin + blob.GetBufferSize());
     return S_OK;
+#endif
   }
 } // namespace gpg::gal::imaging

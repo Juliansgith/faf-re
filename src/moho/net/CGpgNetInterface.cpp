@@ -1968,6 +1968,13 @@ void CGpgNetInterface::ConnectThread(
     return;
   }
 
+#if !defined(_WIN32)
+  // The Linux client plays single-player games and replays; GPGNet (online play) stays on Windows.
+  (void)launchCommandTemplate;
+  gpg::Logf("GPGNet: online play is not available in the Linux client");
+  EnqueueCommand0("LaunchFailed", kNetStateTimedOut);
+  return;
+#else
   STARTUPINFOA startupInfo{};
   startupInfo.cb = sizeof(startupInfo);
   PROCESS_INFORMATION processInformation{};
@@ -2004,6 +2011,7 @@ void CGpgNetInterface::ConnectThread(
 
   ::CloseHandle(processInformation.hProcess);
   ::CloseHandle(processInformation.hThread);
+#endif
 
   INetTCPSocket* const acceptedSocket = mTcpServer->Accept();
   INetTCPSocket* const oldSocket = mTcpSocket;
@@ -2120,6 +2128,7 @@ namespace
   constexpr const wchar_t* kGPGNetDevWorkingDir =
     L"C:\\work\\rts\\main\\code\\src\\Multiplayer\\MultiplayerClient\\bin\\Debug\\";
 
+#if defined(_WIN32)
   [[nodiscard]] bool TryLoadGPGNetPathFromRegistry(const char* const keyPath, std::wstring& outPath)
   {
     std::array<std::uint8_t, 256> buffer{};
@@ -2133,6 +2142,7 @@ namespace
 
     return GetFileAttributesW(outPath.c_str()) != INVALID_FILE_ATTRIBUTES;
   }
+#endif
 } // namespace
 
 /**
@@ -2155,6 +2165,11 @@ int moho::cfunc_LaunchGPGNetL(LuaPlus::LuaState* const state)
   lua_State* const rawState = state->m_state;
   moho::SCR_ExpectExactArgs(state, 0, kLaunchGPGNetHelpText);
 
+#if !defined(_WIN32)
+  // GPGNet (online play) stays on Windows; the Linux client reports the launch as failed.
+  lua_pushboolean(rawState, 0);
+  return 1;
+#else
   HWND ownerWindow = nullptr;
   if (moho::sMainWindow != nullptr) {
     ownerWindow = reinterpret_cast<HWND>(static_cast<std::uintptr_t>(moho::sMainWindow->GetHandle()));
@@ -2202,6 +2217,7 @@ int moho::cfunc_LaunchGPGNetL(LuaPlus::LuaState* const state)
   lua_pushboolean(rawState, launched ? 1 : 0);
   (void)lua_gettop(rawState);
   return 1;
+#endif
 }
 
 /**

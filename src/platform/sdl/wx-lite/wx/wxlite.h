@@ -133,6 +133,7 @@ enum wxBitmapType
 };
 
 // --- strings ------------------------------------------------------------------------------
+struct wxMBConvUTF8;
 class wxString
 {
 public:
@@ -141,6 +142,8 @@ public:
   wxString(const wxChar* text, std::size_t length) : mText(text, length) {}
   wxString(const std::wstring& text) : mText(text) {}
   wxString(const char* text) { AssignNarrow(text != nullptr ? text : ""); }
+  /// wx's `wxString(const char*, wxMBConv&)`: the narrow text is UTF-8.
+  wxString(const char* text, const wxMBConvUTF8&) { AssignNarrow(text != nullptr ? text : ""); }
   wxString(wxChar ch, std::size_t count = 1) : mText(count, ch) {}
 
   const wxChar* c_str() const noexcept { return mText.c_str(); }
@@ -234,6 +237,9 @@ struct wxRect
   int height = 0;
   wxRect() = default;
   wxRect(int px, int py, int w, int h) : x(px), y(py), width(w), height(h) {}
+  wxRect(const wxPoint& pos, const wxSize& size) : x(pos.x), y(pos.y), width(size.x), height(size.y) {}
+  bool Inside(int px, int py) const { return px >= x && py >= y && px < x + width && py < y + height; }
+  bool Contains(int px, int py) const { return Inside(px, py); }
   int GetX() const { return x; }
   int GetY() const { return y; }
   int GetWidth() const { return width; }
@@ -283,12 +289,20 @@ extern wxBrush* wxBLACK_BRUSH;
 class wxFont : public wxObject
 {
 };
+// Images and bitmaps carry no pixels on Linux: the engine draws everything on the render device, and the
+// only wx bitmaps it loads are the splash screen's and the tool windows' (not shown on Linux).
 class wxImage : public wxObject
 {
 public:
   wxImage() = default;
   wxImage(const wxString&, long = wxBITMAP_TYPE_ANY) {}
+  wxImage(int, int, bool = true) {}
   bool Ok() const { return false; }
+  int GetWidth() const { return 0; }
+  int GetHeight() const { return 0; }
+  wxImage& Rescale(int, int) { return *this; }
+  wxImage Scale(int, int) const { return *this; }
+  bool LoadFile(const wxString&, long = wxBITMAP_TYPE_ANY) { return false; }
   static void AddHandler(wxObject*) {}
 };
 class wxPNGHandler : public wxObject
@@ -299,10 +313,13 @@ class wxBitmap : public wxObject
 public:
   wxBitmap() = default;
   wxBitmap(const wxString&, long = wxBITMAP_TYPE_ANY) {}
-  wxBitmap(const wxImage&) {}
+  wxBitmap(const wxImage&, int = -1) {}
+  wxBitmap(int, int, int = -1) {}
   bool Ok() const { return false; }
   int GetWidth() const { return 0; }
   int GetHeight() const { return 0; }
+  bool LoadFile(const wxString&, long = wxBITMAP_TYPE_ANY) { return false; }
+  wxImage ConvertToImage() const { return wxImage(); }
 };
 extern wxBitmap wxNullBitmap;
 class wxIcon : public wxBitmap
@@ -330,6 +347,7 @@ public:
   int GetId() const { return m_id; }
   void SetId(int id) { m_id = id; }
   long GetTimestamp() const { return m_timeStamp; }
+  void SetTimestamp(long timeStamp) { m_timeStamp = timeStamp; }
   void Skip(bool skip = true) { m_skipped = skip; }
   bool GetSkipped() const { return m_skipped; }
   bool IsCommandEvent() const { return m_isCommandEvent; }
@@ -417,13 +435,67 @@ public:
   int GetWheelRotation() const { return m_wheelRotation; }
   int GetWheelDelta() const { return m_wheelDelta; }
   int GetLinesPerAction() const { return m_linesPerAction; }
-  bool ButtonDown(int = -1) const
+  // wx 2.4.2's (common/event.cpp): the button numbers are 1 = left, 2 = middle, 3 = right, -1 = any.
+  bool ButtonDown(int but = -1) const
   {
-    return m_eventType == wxEVT_LEFT_DOWN || m_eventType == wxEVT_RIGHT_DOWN || m_eventType == wxEVT_MIDDLE_DOWN;
+    switch (but) {
+    case -1: return LeftDown() || MiddleDown() || RightDown();
+    case 1: return LeftDown();
+    case 2: return MiddleDown();
+    case 3: return RightDown();
+    default: return false;
+    }
   }
-  bool ButtonUp(int = -1) const
+  bool ButtonUp(int but = -1) const
   {
-    return m_eventType == wxEVT_LEFT_UP || m_eventType == wxEVT_RIGHT_UP || m_eventType == wxEVT_MIDDLE_UP;
+    switch (but) {
+    case -1: return LeftUp() || MiddleUp() || RightUp();
+    case 1: return LeftUp();
+    case 2: return MiddleUp();
+    case 3: return RightUp();
+    default: return false;
+    }
+  }
+  bool ButtonDClick(int but = -1) const
+  {
+    switch (but) {
+    case -1: return LeftDClick() || MiddleDClick() || RightDClick();
+    case 1: return LeftDClick();
+    case 2: return MiddleDClick();
+    case 3: return RightDClick();
+    default: return false;
+    }
+  }
+  bool Button(int but) const
+  {
+    switch (but) {
+    case -1: return ButtonUp(-1) || ButtonDown(-1) || ButtonDClick(-1);
+    case 1: return LeftDown() || LeftUp() || LeftDClick();
+    case 2: return MiddleDown() || MiddleUp() || MiddleDClick();
+    case 3: return RightDown() || RightUp() || RightDClick();
+    default: return false;
+    }
+  }
+  bool IsButton() const { return Button(-1); }
+  bool ButtonIsDown(int but) const
+  {
+    switch (but) {
+    case -1: return LeftIsDown() || MiddleIsDown() || RightIsDown();
+    case 1: return LeftIsDown();
+    case 2: return MiddleIsDown();
+    case 3: return RightIsDown();
+    default: return false;
+    }
+  }
+  /// The button changing state (1 left, 2 middle, 3 right), or -1.
+  int GetButton() const
+  {
+    for (int i = 1; i <= 3; ++i) {
+      if (Button(i)) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   long m_x = 0, m_y = 0;
@@ -453,6 +525,10 @@ class wxCloseEvent : public wxEvent
 public:
   explicit wxCloseEvent(wxEventType type = wxEVT_NULL, int id = 0) : wxEvent(id, type) {}
   bool CanVeto() const { return m_canVeto; }
+  void SetCanVeto(bool canVeto) { m_canVeto = canVeto; }
+  void SetForce(bool force) { m_force = force; }
+  bool GetForce() const { return m_force; }
+  bool m_force = false;
   void Veto(bool veto = true) { m_veto = veto; }
   bool GetVeto() const { return m_veto; }
   bool m_canVeto = true;
@@ -463,10 +539,13 @@ class wxPaintEvent : public wxEvent
 public:
   explicit wxPaintEvent(int id = 0) : wxEvent(id, wxEVT_PAINT) {}
 };
+class wxDC;
 class wxEraseEvent : public wxEvent
 {
 public:
-  explicit wxEraseEvent(int id = 0) : wxEvent(id, wxEVT_ERASE_BACKGROUND) {}
+  explicit wxEraseEvent(int id = 0, wxDC* dc = nullptr) : wxEvent(id, wxEVT_ERASE_BACKGROUND), m_dc(dc) {}
+  wxDC* GetDC() const { return m_dc; }
+  wxDC* m_dc;
 };
 class wxIdleEvent : public wxEvent
 {
@@ -619,15 +698,26 @@ public:
     Connect(id, -1, type, fn, userData);
   }
 
+  bool Disconnect(int id, int lastId, wxEventType type, wxObjectEventFunction fn = nullptr, wxObject* userData = nullptr);
+  bool Disconnect(int id, wxEventType type, wxObjectEventFunction fn = nullptr, wxObject* userData = nullptr)
+  {
+    return Disconnect(id, -1, type, fn, userData);
+  }
+
   static const wxEventTable sm_eventTable;
   virtual const wxEventTable* GetEventTable() const { return &sm_eventTable; }
 
 protected:
+  bool SearchDynamicEventTable(wxEvent& event);
+
   wxEvtHandler* m_nextHandler = nullptr;
   wxEvtHandler* m_previousHandler = nullptr;
   std::vector<wxEventTableEntry> m_dynamicEvents;
-  std::vector<wxEvent*> m_pendingEvents;
+  std::vector<wxEvent*> m_pendingEvents; // guarded by the pending-event lock (platform/sdl/WxLite.cpp)
   bool m_enabled = true;
+
+public:
+  bool m_isWindow = false; // wx 2.4's: command events go on to the parent window
 };
 
 // --- windows --------------------------------------------------------------------------------
@@ -648,10 +738,11 @@ public:
 class wxWindow : public wxWindowBase
 {
 public:
-  wxWindow() = default;
+  wxWindow() { m_isWindow = true; }
   wxWindow(wxWindow* parent, wxWindowID id, const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxDefaultSize,
            long style = 0, const wxString& name = wxPanelNameStr)
   {
+    m_isWindow = true;
     Create(parent, id, pos, size, style, name);
   }
   ~wxWindow() override;
@@ -673,6 +764,8 @@ public:
   long GetWindowStyle() const { return m_windowStyle; }
   void SetWindowStyleFlag(long style) { m_windowStyle = style; }
   void SetWindowStyle(long style) { m_windowStyle = style; }
+  long GetExtraStyle() const { return m_exStyle; }
+  void SetExtraStyle(long exStyle) { m_exStyle = exStyle; }
 
   virtual bool Show(bool show = true);
   bool Hide() { return Show(false); }
@@ -681,19 +774,24 @@ public:
   bool Disable() { return Enable(false); }
   bool IsEnabled() const { return m_isEnabled; }
   virtual bool IsTopLevel() const { return false; }
+  virtual bool AcceptsFocus() const { return IsShown() && IsEnabled(); }
+  bool IsBeingDeleted() const { return m_isBeingDeleted; }
   virtual bool Close(bool force = false);
   virtual bool Destroy();
   bool DestroyChildren();
   virtual void Raise() {}
   virtual void Lower() {}
+  /// Gives this window the keyboard focus (WM_KILLFOCUS to the old one, WM_SETFOCUS to this one).
   virtual void SetFocus();
   static wxWindow* FindFocus();
   virtual void CaptureMouse();
   virtual void ReleaseMouse();
   static wxWindow* GetCapture();
   bool HasCapture() const { return GetCapture() == this; }
-  virtual void Refresh(bool = true, const wxRect* = nullptr) {}
-  void Update() {}
+  /// Marks the window for a WM_PAINT (a WM_ERASEBKGND first when `eraseBackground`), sent when the
+  /// event queue is empty, as Windows does.
+  virtual void Refresh(bool eraseBackground = true, const wxRect* = nullptr);
+  void Update();
   void Freeze() {}
   void Thaw() {}
   void Layout() {}
@@ -710,7 +808,16 @@ public:
   void Move(const wxPoint& pos) { Move(pos.x, pos.y); }
   void SetClientSize(int width, int height) { SetSize(width, height); }
   void SetClientSize(const wxSize& size) { SetSize(size); }
-  void SetSizeHints(int, int, int = -1, int = -1, int = -1, int = -1) {}
+  void SetSizeHints(int minW, int minH, int maxW = -1, int maxH = -1, int = -1, int = -1)
+  {
+    m_minWidth = minW;
+    m_minHeight = minH;
+    m_maxWidth = maxW;
+    m_maxHeight = maxH;
+    OnSizeHintsChanged();
+  }
+  int GetMinWidth() const { return m_minWidth; }
+  int GetMinHeight() const { return m_minHeight; }
   void GetSize(int* width, int* height) const;
   wxSize GetSize() const { return wxSize(m_width, m_height); }
   void GetClientSize(int* width, int* height) const { GetSize(width, height); }
@@ -725,6 +832,7 @@ public:
 
   void PushEventHandler(wxEvtHandler* handler);
   wxEvtHandler* PopEventHandler(bool deleteHandler = false);
+  bool RemoveEventHandler(wxEvtHandler* handler);
   wxEvtHandler* GetEventHandler() const { return m_eventHandler != nullptr ? m_eventHandler : const_cast<wxWindow*>(this); }
   void SetEventHandler(wxEvtHandler* handler) { m_eventHandler = handler; }
 
@@ -732,18 +840,22 @@ public:
   void SetForegroundColour(const wxColour&) {}
   void SetFont(const wxFont&) {}
   void SetCursor(const wxObject&) {}
-  void SetSizer(wxSizer*, bool = true) {}
-  void SetAutoLayout(bool) {}
+  void SetSizer(wxSizer* sizer, bool deleteOld = true);
+  wxSizer* GetSizer() const { return m_sizer; }
+  void SetAutoLayout(bool autoLayout) { m_autoLayout = autoLayout; }
+  bool GetAutoLayout() const { return m_autoLayout; }
   void SetAcceleratorTable(const wxAcceleratorTable&) {}
   void SetToolTip(const wxString&) {}
   virtual void SetIcon(const wxIcon&) {}
 
-  /// The native handle: the SDL_Window of a top-level window (platform/sdl/SdlApp.cpp), else the
-  /// nearest top-level ancestor's.
+  /// The native handle: the SDL_Window of a top-level window (platform/sdl/WxLiteWindows.cpp), else the
+  /// nearest top-level ancestor's: the engine's viewports render into their frame's window.
   virtual WXWidget GetHandle() const;
+  wxWindow* GetTopLevelParent() const;
 
-  // wxWindows/MSW's message hooks: the engine overrides them for its frame and viewport. On Linux
-  // no Windows message ever arrives; platform/sdl turns SDL's events into wx events instead.
+  // wxWindows/MSW's window procedure. platform/sdl turns SDL's events into the Windows messages a
+  // window received there and hands them to MSWWindowProc; the base one does what wxWindowMSW's did
+  // (wx/msw/window.cpp): wx events through GetEventHandler()->ProcessEvent, the rest to MSWDefWindowProc.
   virtual long MSWWindowProc(WXUINT message, WXWPARAM wParam, WXLPARAM lParam);
   virtual long MSWDefWindowProc(WXUINT message, WXWPARAM wParam, WXLPARAM lParam);
   virtual bool TransferDataFromWindow() { return true; }
@@ -757,19 +869,49 @@ public:
   static const wxEventTable sm_eventTable;
   const wxEventTable* GetEventTable() const override { return &sm_eventTable; }
 
+  // The handlers of wxWindowMSW::MSWWindowProc (platform/sdl/WxLiteWindows.cpp).
+  bool HandleMove(int x, int y);
+  virtual bool HandleSize(int width, int height, WXUINT flag);
+  bool HandleMouseEvent(WXUINT message, int x, int y, WXUINT flags);
+  bool HandleMouseMove(int x, int y, WXUINT flags);
+  bool HandleMouseWheel(WXWPARAM wParam, WXLPARAM lParam);
+  bool HandleKeyDown(WXWPARAM wParam, WXLPARAM lParam);
+  bool HandleKeyUp(WXWPARAM wParam, WXLPARAM lParam);
+  bool HandleChar(WXWPARAM wParam, WXLPARAM lParam, bool isASCII = false);
+  bool HandleSetFocus();
+  bool HandleKillFocus();
+  bool HandleActivate(int state);
+  bool HandlePaint();
+  bool HandleEraseBkgnd();
+  void InitMouseEvent(wxMouseEvent& event, int x, int y, WXUINT flags);
+  wxKeyEvent CreateKeyEvent(wxEventType type, int id, WXLPARAM lParam, WXWPARAM wParam) const;
+  /// Sends wxEVT_LEAVE_WINDOW when the mouse was in this window (wxWindowMSW::OnIdle's check).
+  void GenerateMouseLeave(int x, int y, WXUINT flags);
+  virtual void OnSizeHintsChanged() {}
+
   wxWindow* m_parent = nullptr;
   std::vector<wxWindow*> m_children;
   wxEvtHandler* m_eventHandler = nullptr;
+  wxSizer* m_sizer = nullptr;
   wxWindowID m_windowId = -1;
   wxString m_windowName;
   wxString m_title;
   long m_windowStyle = 0;
+  long m_exStyle = 0;
   int m_x = 0, m_y = 0, m_width = 0, m_height = 0;
+  int m_minWidth = -1, m_minHeight = -1, m_maxWidth = -1, m_maxHeight = -1;
   bool m_isShown = false;
   bool m_isEnabled = true;
   bool m_isBeingDeleted = false;
+  bool m_autoLayout = false;
+  bool m_mouseInWindow = false;
+  bool m_lastKeydownProcessed = false;
+  bool m_needsPaint = false;
+  bool m_needsErase = false;
 };
 typedef std::vector<wxWindow*> wxWindowList;
+/// wx's list of the top-level windows, in creation order.
+extern wxWindowList wxTopLevelWindows;
 
 class wxControl : public wxWindow
 {
@@ -795,24 +937,42 @@ class wxTopLevelWindow : public wxWindow
 public:
   wxTopLevelWindow() = default;
   ~wxTopLevelWindow() override;
+  /// Creates the SDL window (hidden, Vulkan-capable, resizable) right away, so GetHandle() is valid
+  /// before the first Show: in fullscreen mode the engine creates its render device on the frame before
+  /// it shows it.
   bool CreateTopLevel(wxWindow* parent, wxWindowID id, const wxString& title, const wxPoint& pos, const wxSize& size,
                       long style, const wxString& name);
   bool IsTopLevel() const override { return true; }
   bool Show(bool show = true) override;
+  bool Destroy() override;
   void SetTitle(const wxString& title) override;
   void SetSize(int x, int y, int width, int height, int sizeFlags = wxSIZE_AUTO) override;
   using wxWindow::SetSize;
   void Maximize(bool maximize = true);
+  void Restore();
   void Iconize(bool iconize = true);
   bool IsMaximized() const;
   bool IsIconized() const;
   bool ShowFullScreen(bool show, long = 0);
   bool IsFullScreen() const { return m_fullScreen; }
   void Raise() override;
+  void RequestUserAttention(int = 0);
   WXWidget GetHandle() const override { return reinterpret_cast<WXWidget>(m_nativeWindow); }
+  long MSWWindowProc(WXUINT message, WXWPARAM wParam, WXLPARAM lParam) override;
+  bool HandleSize(int width, int height, WXUINT flag) override;
+  void OnSizeHintsChanged() override;
 
-  void* m_nativeWindow = nullptr; // SDL_Window*, created on the first Show
+  // wxTopLevelWindowBase's table: EVT_CLOSE destroys the window, EVT_SIZE lays out a single child.
+  void OnCloseWindow(wxCloseEvent& event);
+  void OnSize(wxSizeEvent& event);
+  static const wxEventTable sm_eventTable;
+  const wxEventTable* GetEventTable() const override { return &sm_eventTable; }
+
+  void* m_nativeWindow = nullptr; // SDL_Window*
+  wxWindow* m_lastFocus = nullptr; // the child that had the focus when the window was deactivated
   bool m_fullScreen = false;
+  bool m_iconized = false;
+  bool m_maximized = false;
 };
 typedef wxTopLevelWindow wxTopLevelWindowMSW;
 
@@ -864,11 +1024,13 @@ public:
     return true;
   }
   bool Show(bool show = true) override { m_isShown = show; return true; }
-  /// The Linux client has no dialogs: every modal one answers as cancelled.
-  virtual int ShowModal() { return wxID_CANCEL; }
+  /// The Linux client has no dialogs: every modal one logs its title and answers as cancelled.
+  virtual int ShowModal();
   void EndModal(int returnCode) { m_returnCode = returnCode; }
   int GetReturnCode() const { return m_returnCode; }
   bool IsModal() const { return false; }
+  /// wx's: closing a dialog cancels it (hides it) rather than destroying it.
+  void OnCloseWindow(wxCloseEvent& event);
   static const wxEventTable sm_eventTable;
   const wxEventTable* GetEventTable() const override { return &sm_eventTable; }
   int m_returnCode = 0;
@@ -890,18 +1052,24 @@ class wxBitmapButton : public wxButton
 {
 public:
   wxBitmapButton() = default;
-  wxBitmapButton(wxWindow* parent, wxWindowID id, const wxBitmap&, const wxPoint& pos = wxDefaultPosition,
+  wxBitmapButton(wxWindow* parent, wxWindowID id, const wxBitmap& bitmap, const wxPoint& pos = wxDefaultPosition,
                  const wxSize& size = wxDefaultSize, long style = wxBU_AUTODRAW)
-    : wxButton(parent, id, wxString(), pos, size, style) {}
-  bool Create(wxWindow* parent, wxWindowID id, const wxBitmap&, const wxPoint& pos = wxDefaultPosition,
+    : wxButton(parent, id, wxString(), pos, size, style), m_bmpNormal(bitmap) {}
+  bool Create(wxWindow* parent, wxWindowID id, const wxBitmap& bitmap, const wxPoint& pos = wxDefaultPosition,
               const wxSize& size = wxDefaultSize, long style = wxBU_AUTODRAW)
   {
+    m_bmpNormal = bitmap;
     return wxWindow::Create(parent, id, pos, size, style);
   }
-  void SetBitmapLabel(const wxBitmap&) {}
-  void SetBitmapSelected(const wxBitmap&) {}
-  void SetBitmapFocus(const wxBitmap&) {}
-  void SetBitmapDisabled(const wxBitmap&) {}
+  const wxBitmap& GetBitmapLabel() const { return m_bmpNormal; }
+  const wxBitmap& GetBitmapSelected() const { return m_bmpSelected; }
+  const wxBitmap& GetBitmapFocus() const { return m_bmpFocus; }
+  const wxBitmap& GetBitmapDisabled() const { return m_bmpDisabled; }
+  void SetBitmapLabel(const wxBitmap& bitmap) { m_bmpNormal = bitmap; }
+  void SetBitmapSelected(const wxBitmap& bitmap) { m_bmpSelected = bitmap; }
+  void SetBitmapFocus(const wxBitmap& bitmap) { m_bmpFocus = bitmap; }
+  void SetBitmapDisabled(const wxBitmap& bitmap) { m_bmpDisabled = bitmap; }
+  wxBitmap m_bmpNormal, m_bmpSelected, m_bmpFocus, m_bmpDisabled;
 };
 class wxCheckBox : public wxControl
 {
@@ -1005,15 +1173,36 @@ public:
                  const wxSize& = wxDefaultSize, long = 0) {}
 };
 
+// Sizers keep their subsizers (and delete them, as wx's do) but lay nothing out: the windows they
+// would arrange are never shown on Linux.
 class wxSizer : public wxObject
 {
 public:
+  wxSizer() = default;
+  wxSizer(const wxSizer&) = delete;
+  wxSizer& operator=(const wxSizer&) = delete;
+  ~wxSizer() override
+  {
+    for (wxSizer* const child : m_subSizers) {
+      delete child;
+    }
+  }
   void Add(wxWindow*, int = 0, int = 0, int = 0) {}
-  void Add(wxSizer*, int = 0, int = 0, int = 0) {}
+  void Add(wxSizer* sizer, int = 0, int = 0, int = 0)
+  {
+    if (sizer != nullptr) {
+      m_subSizers.push_back(sizer);
+    }
+  }
   void Add(int, int, int = 0, int = 0, int = 0) {}
   void Fit(wxWindow*) {}
   void SetSizeHints(wxWindow*) {}
+  void SetMinSize(int width, int height) { m_minSize = wxSize(width, height); }
+  void SetMinSize(const wxSize& size) { m_minSize = size; }
+  wxSize GetMinSize() const { return m_minSize; }
   void Layout() {}
+  std::vector<wxSizer*> m_subSizers;
+  wxSize m_minSize;
 };
 class wxBoxSizer : public wxSizer
 {
@@ -1024,24 +1213,50 @@ class wxLayoutConstraints : public wxObject
 {
 };
 
+// Device contexts know their window's extent and draw nothing: the render device paints the windows.
 class wxDC : public wxObject
 {
 public:
+  wxDC() = default;
+  explicit wxDC(const wxWindow* window)
+  {
+    if (window != nullptr) {
+      window->GetClientSize(&m_width, &m_height);
+    }
+  }
   void SetBrush(const wxBrush&) {}
   void SetPen(const wxObject&) {}
+  void SetBackground(const wxBrush&) {}
   void DrawBitmap(const wxBitmap&, int, int, bool = false) {}
   void DrawRectangle(int, int, int, int) {}
   void Clear() {}
+  void GetSize(int* width, int* height) const
+  {
+    if (width != nullptr) {
+      *width = m_width;
+    }
+    if (height != nullptr) {
+      *height = m_height;
+    }
+  }
+  wxSize GetSize() const { return wxSize(m_width, m_height); }
+  int m_width = 0;
+  int m_height = 0;
+};
+class wxWindowDC : public wxDC
+{
+public:
+  explicit wxWindowDC(wxWindow* window) : wxDC(window) {}
 };
 class wxPaintDC : public wxDC
 {
 public:
-  explicit wxPaintDC(wxWindow*) {}
+  explicit wxPaintDC(wxWindow* window) : wxDC(window) {}
 };
 class wxClientDC : public wxDC
 {
 public:
-  explicit wxClientDC(wxWindow*) {}
+  explicit wxClientDC(wxWindow* window) : wxDC(window) {}
 };
 
 // --- dialogs, files, URLs -------------------------------------------------------------------
@@ -1111,8 +1326,16 @@ enum wxURLError
 class wxURL : public wxObject
 {
 public:
-  explicit wxURL(const wxString&) {}
-  wxURLError GetError() const { return wxURL_CONNERR; }
+  explicit wxURL(const wxString& url) : m_url(url) {}
+  wxURLError GetError() const { return wxURL_NOERR; }
+  /// The scheme before "://" (the engine opens http(s) links with the desktop's browser).
+  wxString GetProtocolName() const
+  {
+    const int colon = m_url.Find(L':');
+    return colon > 0 ? m_url.Left(static_cast<std::size_t>(colon)) : wxString();
+  }
+  wxString GetURL() const { return m_url; }
+  wxString m_url;
   wxInputStream* GetInputStream() { return nullptr; }
 };
 
@@ -1125,14 +1348,26 @@ public:
   virtual int OnRun() { return MainLoop(); }
   virtual int MainLoop();
   virtual void ExitMainLoop() { m_keepGoing = false; }
+  /// Whether an event waits: an SDL event, or a window to paint (platform/sdl/SdlApp.cpp).
   virtual bool Pending();
+  /// Dispatches one: an SDL event as the Windows messages it stands for, or else one WM_PAINT.
   virtual void Dispatch();
+  /// wx 2.4's: one wxIdleEvent to the application, whose OnIdle runs the pending events, deletes the
+  /// windows Destroy()ed since, and sends idle events to every window; true when more were requested.
   virtual bool ProcessIdle();
+  void OnIdle(wxIdleEvent& event);
+  bool SendIdleEvents();
+  bool SendIdleEvents(wxWindow* window);
+  void ProcessPendingEvents();
+  void DeletePendingObjects();
+  /// wx's: records the application's activation and sends it wxEVT_ACTIVATE_APP.
+  void SetActive(bool isActive, wxWindow* lastFocus);
   virtual bool Initialized() { return true; }
   virtual void OnAssert(const wxChar*, int, const wxChar*) {}
   wxWindow* GetTopWindow() const { return m_topWindow; }
   void SetTopWindow(wxWindow* window) { m_topWindow = window; }
   void SetExitOnFrameDelete(bool exit) { m_exitOnFrameDelete = exit; }
+  bool GetExitOnFrameDelete() const { return m_exitOnFrameDelete; }
   void SetAppName(const wxString& name) { m_appName = name; }
   wxString GetAppName() const { return m_appName; }
   void SetVendorName(const wxString&) {}
@@ -1151,8 +1386,10 @@ class wxApp : public wxAppBase
 public:
   static const wxEventTable sm_eventTable;
   const wxEventTable* GetEventTable() const override { return &sm_eventTable; }
-  static bool Initialize() { return true; }
-  static void CleanUp() {}
+  /// Initialises SDL's video and events (platform/sdl/SdlApp.cpp).
+  static bool Initialize();
+  /// Deletes the application object and the windows left, and shuts SDL's video down.
+  static void CleanUp();
 };
 extern wxApp* wxTheApp;
 typedef wxApp* (*wxAppInitializerFunction)();
@@ -1183,3 +1420,7 @@ void wxWakeUpIdle();
 /// keys to the original's Windows virtual-key codes in its keymaps.
 int wxCharCodeWXToMSW(int keyCode, bool* isVirtual);
 int wxCharCodeMSWToWX(int virtualKey);
+bool wxIsShiftDown();
+bool wxIsCtrlDown();
+/// The top-level window whose native handle (SDL_Window*) is `handle`, or null.
+wxWindow* wxFindWinFromHandle(WXHWND handle);

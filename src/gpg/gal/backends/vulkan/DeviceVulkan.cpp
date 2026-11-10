@@ -10,8 +10,10 @@
 #include <string>
 #include <vector>
 
+#if defined(_WIN32)
 #include <d3dcompiler.h>
 #include <wrl/client.h>
+#endif
 
 #include "VulkanAttachmentBarrier.h"
 #include "VulkanSurface.h"
@@ -39,6 +41,10 @@
 #include "gpg/gal/effects/RayTracedShadows.h"
 #include "gpg/gal/effects/ShadowCascades.h"
 #include "gpg/gal/effects/TextureFiltering.h"
+#if !defined(_WIN32)
+#include "gpg/gal/backends/common/BitmapHeadersPosix.h"
+#include "gpg/gal/effects/ShaderCompiler.h"
+#endif
 
 namespace gpg::gal
 {
@@ -190,6 +196,15 @@ namespace gpg::gal
       }
       return VK_IMAGE_ASPECT_COLOR_BIT;
     }
+
+#if !defined(_WIN32)
+    // The Linux client: <wingdi.h>'s BMP headers (backends/common/BitmapHeadersPosix.h).
+    using posix::BITMAPFILEHEADER;
+    using posix::BITMAPINFOHEADER;
+#ifndef BI_RGB
+#define BI_RGB (posix::kBiRgb)
+#endif
+#endif
 
     void WriteBmp(const char* const path, const imaging::Image& image)
     {
@@ -416,7 +431,12 @@ namespace gpg::gal
       ThrowError("DeviceVulkan.cpp", __LINE__, "the Vulkan loader is older than 1.3");
     }
 
+#if defined(_WIN32)
     std::vector<const char*> extensions{VK_KHR_SURFACE_EXTENSION_NAME, vulkan::PlatformSurfaceExtension()};
+#else
+    // The Linux client: VK_KHR_surface and the window system's extensions, as SDL names them (X11, Wayland).
+    std::vector<const char*> extensions = vulkan::PlatformInstanceExtensions();
+#endif
     std::vector<const char*> layers;
     const bool debug = CommandLineHas("/vulkandebug");
     if (debug) {
@@ -577,6 +597,16 @@ namespace gpg::gal
     features.features.fillModeNonSolid = available.features.fillModeNonSolid;
     features.features.textureCompressionBC = available.features.textureCompressionBC;
     features.features.tessellationShader = available.features.tessellationShader;
+    // Engine addition (debugging aid): FAF_VULKAN_ROBUST=1 turns on robustBufferAccess, so a read past
+    // a buffer's end returns zero as Direct3D defines it, instead of what the driver happens to do (a
+    // software rasterizer faults). Off by default: it costs bounds checks on every access.
+    if (const char* const robust = std::getenv("FAF_VULKAN_ROBUST"); robust != nullptr && robust[0] == '1') {
+      features.features.robustBufferAccess = available.features.robustBufferAccess;
+      features13.robustImageAccess = available13.robustImageAccess;
+      gpg::Logf("Vulkan: robust buffer access %s, robust image access %s (FAF_VULKAN_ROBUST)",
+                available.features.robustBufferAccess == VK_TRUE ? "on" : "unsupported",
+                available13.robustImageAccess == VK_TRUE ? "on" : "unsupported");
+    }
     mAnisotropy = available.features.samplerAnisotropy == VK_TRUE;
     mWireframeSupported = available.features.fillModeNonSolid == VK_TRUE;
     mTessellationSupported = available.features.tessellationShader == VK_TRUE;
@@ -920,10 +950,18 @@ namespace gpg::gal
       std::uint32_t width = head.mWidth;
       std::uint32_t height = head.mHeight;
       if (width == 0U || height == 0U) {
+#if defined(_WIN32)
         RECT client{};
         ::GetClientRect(static_cast<HWND>(head.mWindow), &client);
         width = static_cast<std::uint32_t>(std::max<LONG>(client.right - client.left, 1));
         height = static_cast<std::uint32_t>(std::max<LONG>(client.bottom - client.top, 1));
+#else
+        // The Linux client: the SDL window's drawable size in pixels (HiDPI-aware).
+        if (!vulkan::WindowPixelSize(head.mWindow, width, height)) {
+          width = 1U;
+          height = 1U;
+        }
+#endif
       }
       CreateSwapChain(mSwapChains[static_cast<std::size_t>(headIndex)], width, height);
     }
@@ -1851,6 +1889,7 @@ namespace gpg::gal
     for (const MacroPair& macro : kInjectedMacros) {
       localContext.DefineMacro(macro.name, macro.value);
     }
+#if defined(_WIN32)
     std::vector<D3D_SHADER_MACRO> defines;
     for (const EffectMacro& macro : localContext.mMacros) {
       defines.push_back(D3D_SHADER_MACRO{macro.keyText_.c_str(), macro.valueText_.c_str()});
@@ -1873,6 +1912,32 @@ namespace gpg::gal
       // and running the translator's copy as well would test twice.
       std::string_view{}
     );
+#else
+    // The Linux client has no d3dcompiler_47: DXC's preprocessor takes D3DPreprocess's place
+    // (ShaderCompiler::Preprocess), with the same macros. Its text differs only in layout (runs of
+    // blank lines become #line markers), and the override layer drops every directive line.
+    std::vector<std::pair<std::string, std::string>> defines;
+    for (const EffectMacro& macro : localContext.mMacros) {
+      defines.emplace_back(macro.keyText_.c_str(), macro.valueText_.c_str());
+    }
+
+    const DWORD started = ::GetTickCount();
+    const char* const sourceName = context.mSourcePath.c_str();
+    const std::size_t sourceBytes = static_cast<std::size_t>(context.mSourceBuffer.mEnd - context.mSourceBuffer.mBegin);
+    std::string preprocessed;
+    std::string errors;
+    if (!effects::ShaderCompiler::Instance().Preprocess(
+          std::string_view(context.mSourceBuffer.mBegin, sourceBytes), sourceName, defines, preprocessed, errors
+        )) {
+      const std::string message = std::string("unable to preprocess effect: ") + sourceName + " reason: " + errors;
+      ThrowError("DeviceVulkan.cpp", __LINE__, message.c_str());
+    }
+    d3d11::TranslatedEffectSource translated = d3d11::TranslateEffectSource(
+      preprocessed, true,
+      // No original source, as above.
+      std::string_view{}
+    );
+#endif
     std::shared_ptr<effects::EffectProgram> program;
     try {
       program = std::make_shared<effects::EffectProgram>(
@@ -2332,10 +2397,18 @@ namespace gpg::gal
       std::uint32_t width = head.mWidth;
       std::uint32_t height = head.mHeight;
       if (width == 0U || height == 0U) {
+#if defined(_WIN32)
         RECT client{};
         ::GetClientRect(static_cast<HWND>(head.mWindow), &client);
         width = static_cast<std::uint32_t>(std::max<LONG>(client.right - client.left, 1));
         height = static_cast<std::uint32_t>(std::max<LONG>(client.bottom - client.top, 1));
+#else
+        // The Linux client: the SDL window's drawable size in pixels (HiDPI-aware).
+        if (!vulkan::WindowPixelSize(head.mWindow, width, height)) {
+          width = 1U;
+          height = 1U;
+        }
+#endif
       }
       CreateSwapChain(mSwapChains[headIndex], width, height);
     }

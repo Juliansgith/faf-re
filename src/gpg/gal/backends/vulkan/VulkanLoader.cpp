@@ -15,7 +15,16 @@ namespace gpg::gal::vulkan
     if (module != nullptr) {
       return true;
     }
+#if defined(_WIN32)
     module = ::LoadLibraryA("vulkan-1.dll");
+#else
+    // The Linux client: the Khronos loader (libvulkan1) by its soname, through the POSIX
+    // LoadLibraryA (dlopen); the unversioned name exists only with the development package.
+    module = ::LoadLibraryA("libvulkan.so.1");
+    if (module == nullptr) {
+      module = ::LoadLibraryA("libvulkan.so");
+    }
+#endif
     if (module == nullptr) {
       return false;
     }

@@ -30,13 +30,18 @@
 #include "gpg/gal/Texture.hpp"
 #include "gpg/gal/TextureContext.h"
 #include "gpg/gal/VertexBufferContext.hpp"
+#if defined(_WIN32) // the Direct3D backends (the Linux client renders with Vulkan)
 #include "gpg/gal/backends/d3d9/DeviceD3D9.hpp"
 #include "gpg/gal/backends/d3d9/EffectTechniqueD3D9.hpp"
+#endif
 #include "gpg/gal/EffectTechnique.hpp"
+#include "gpg/gal/MeshFormatter.h"
+#if defined(_WIN32) // the Direct3D backends (the Linux client renders with Vulkan)
 #include "gpg/gal/backends/d3d9/Float16HardwareVertexFormatterD3D9.hpp"
 #include "gpg/gal/backends/d3d9/IndexBufferD3D9.hpp"
 #include "gpg/gal/backends/d3d9/VertexBufferD3D9.hpp"
 #include "gpg/gal/backends/d3d9/VertexFormatD3D9.hpp"
+#endif
 #include "moho/render/d3d/CD3DDevice.h"
 #include "moho/render/d3d/CD3DEffectTechnique.h"
 #include "moho/render/d3d/ShaderVar.h"
@@ -929,8 +934,11 @@ namespace moho
     // since (the skinning palettes). Multi-pass techniques keep the loop below.
     // The two open-pass draws are FAF's; they keep the binary's fatal handling
     // of a failed draw, as the per-pass draw below does.
+    // (sOpenPassTechnique is only ever set on Direct3D 9, below.)
     if (sOpenPassTechnique != nullptr && technique == sOpenPassTechnique) {
+#if defined(_WIN32)
       static_cast<gpg::gal::EffectTechniqueD3D9*>(technique)->CommitChanges();
+#endif
       try {
         device->DrawIndexedPrimitive(&drawContext);
       } catch (const gpg::gal::Error& error) {

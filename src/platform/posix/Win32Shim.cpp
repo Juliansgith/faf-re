@@ -1799,6 +1799,11 @@ HRESULT SHGetFolderPathW(HWND, const int folder, HANDLE, DWORD, wchar_t* const p
   if (wide.size() >= MAX_PATH) {
     return E_FAIL;
   }
+  // Windows' known folders always exist, and callers create only their own subfolders below them
+  // (USER_LoadPreferences, USER_EnsureDocumentDirectories); a fresh account here may not have
+  // ~/.local/share or ~/Documents yet.
+  std::error_code created;
+  std::filesystem::create_directories(resolved, created);
   std::wmemcpy(path, wide.c_str(), wide.size() + 1);
   return S_OK;
 }
@@ -2426,6 +2431,16 @@ BOOL IsDebuggerPresent()
 void DebugBreak()
 {
   (void)std::raise(SIGTRAP);
+}
+
+LONG CompareFileTime(const FILETIME* const first, const FILETIME* const second)
+{
+  const auto value = [](const FILETIME* const time) {
+    return (static_cast<std::uint64_t>(time->dwHighDateTime) << 32) | time->dwLowDateTime;
+  };
+  const std::uint64_t a = value(first);
+  const std::uint64_t b = value(second);
+  return a < b ? -1 : (a > b ? 1 : 0);
 }
 
 #endif // !defined(_WIN32)

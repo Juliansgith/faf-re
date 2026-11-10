@@ -8,16 +8,30 @@
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
+#if defined(_WIN32)
 #include <wrl/client.h>
+#endif
 
 #include <algorithm>
 #include <cctype>
+#if defined(_WIN32)
 #include <d3d12shader.h>
 
 #include "dxcapi.h"
+#else
+// The Linux client: libdxcompiler.so, declared by DxcPosix.h (DXC's own dxcapi.h clashes with the
+// POSIX <Windows.h> shim every Linux translation unit has).
+#include <dlfcn.h>
+#include <unistd.h>
+
+#include <utility>
+
+#include "DxcPosix.h"
+#endif
 
 namespace gpg::gal::effects
 {
+#if defined(_WIN32)
   using Microsoft::WRL::ComPtr;
 
   struct ShaderCompiler::Library
@@ -67,6 +81,36 @@ namespace gpg::gal::effects
       return (slash == std::wstring::npos) ? std::wstring() : directory.substr(0U, slash + 1U);
     }
 
+#else  // The Linux client: the same objects through DxcPosix.h's declarations.
+  struct ShaderCompiler::Library
+  {
+    void* signer = nullptr;   // libdxil.so
+    void* compiler = nullptr; // libdxcompiler.so
+    dxc::CreateInstanceProc create = nullptr;
+    dxc::Ref<dxc::IDxcCompiler3> dxc;
+  };
+
+  namespace
+  {
+    struct ThreadDxc
+    {
+      dxc::Ref<dxc::IDxcCompiler3> dxc;
+    };
+
+    [[nodiscard]] ThreadDxc* ThisThreadDxc(const dxc::CreateInstanceProc create)
+    {
+      thread_local ThreadDxc instance;
+      thread_local bool tried = false;
+      if (!tried) {
+        tried = true;
+        if (create == nullptr || FAILED(create(dxc::kClsidDxcCompiler, dxc::IDxcCompiler3::kIid, instance.dxc.Put()))) {
+          instance.dxc.Reset();
+        }
+      }
+      return instance.dxc ? &instance : nullptr;
+    }
+#endif // defined(_WIN32)
+
     [[nodiscard]] std::wstring Widen(const std::string_view text)
     {
       if (text.empty()) {
@@ -85,6 +129,7 @@ namespace gpg::gal::effects
     return compiler;
   }
 
+#if defined(_WIN32)
   ShaderCompiler::ShaderCompiler()
   {
     std::vector<std::wstring> directories{ExecutableDirectory()};
@@ -156,6 +201,7 @@ namespace gpg::gal::effects
       mLibrary->dxc.Reset();
     }
   }
+#endif // defined(_WIN32)
 
   bool ShaderCompiler::Available() const noexcept
   {
@@ -253,6 +299,7 @@ namespace gpg::gal::effects
     return Run(hlsl, arguments);
   }
 
+#if defined(_WIN32)
   CompiledShader ShaderCompiler::Run(const std::string_view hlsl, const std::vector<std::wstring>& arguments) const
   {
     CompiledShader result;
@@ -380,4 +427,211 @@ namespace gpg::gal::effects
     }
     return inputs;
   }
+#else  // The Linux client.
+  ShaderCompiler::ShaderCompiler()
+  {
+    // As on Windows: the executable's folder, then FAF_DXC_DIR; then the dynamic loader's own search
+    // (LD_LIBRARY_PATH, ldconfig), where a distribution's DXC package lands. Nothing is embedded.
+    std::vector<std::string> directories;
+    {
+      char path[4096]{};
+      const ssize_t length = ::readlink("/proc/self/exe", path, sizeof(path) - 1U);
+      if (length > 0) {
+        const std::string executable(path, static_cast<std::size_t>(length));
+        const std::size_t slash = executable.find_last_of('/');
+        if (slash != std::string::npos) {
+          directories.push_back(executable.substr(0U, slash + 1U));
+        }
+      }
+    }
+    if (const char* const configured = std::getenv("FAF_DXC_DIR"); configured != nullptr && configured[0] != '\0') {
+      std::string directory = configured;
+      if (directory.back() != '/') {
+        directory += '/';
+      }
+      directories.push_back(std::move(directory));
+    }
+    directories.emplace_back();
+
+    auto library = new Library();
+    for (const std::string& directory : directories) {
+      // The signer first and global, so dxcompiler's own dlopen("libdxil.so") finds it loaded.
+      library->signer = ::dlopen((directory + "libdxil.so").c_str(), RTLD_NOW | RTLD_GLOBAL);
+      library->compiler = ::dlopen((directory + "libdxcompiler.so").c_str(), RTLD_NOW | RTLD_LOCAL);
+      if (library->compiler != nullptr) {
+        break;
+      }
+      if (library->signer != nullptr) {
+        ::dlclose(library->signer);
+        library->signer = nullptr;
+      }
+    }
+    if (library->compiler == nullptr) {
+      mLoadError = "libdxcompiler.so not found next to the executable, in FAF_DXC_DIR or on the library path";
+      delete library;
+      return;
+    }
+
+    const auto create = reinterpret_cast<dxc::CreateInstanceProc>(::dlsym(library->compiler, "DxcCreateInstance"));
+    if (create == nullptr || FAILED(create(dxc::kClsidDxcCompiler, dxc::IDxcCompiler3::kIid, library->dxc.Put()))) {
+      mLoadError = "libdxcompiler.so does not provide IDxcCompiler3";
+      library->dxc.Reset();
+      ::dlclose(library->compiler);
+      if (library->signer != nullptr) {
+        ::dlclose(library->signer);
+      }
+      delete library;
+      return;
+    }
+
+    dxc::Ref<dxc::IDxcVersionInfo> versionInfo;
+    std::uint32_t major = 0U;
+    std::uint32_t minor = 0U;
+    if (SUCCEEDED(library->dxc->QueryInterface(dxc::IDxcVersionInfo::kIid, versionInfo.Put())) && versionInfo &&
+        SUCCEEDED(versionInfo->GetVersion(&major, &minor))) {
+      char version[64]{};
+      std::snprintf(version, sizeof(version), "dxc %u.%u%s", major, minor, library->signer != nullptr ? " signed" : " unsigned");
+      mVersion = version;
+    } else {
+      mVersion = "dxc";
+    }
+    library->create = create;
+    mLibrary = library;
+  }
+
+  ShaderCompiler::~ShaderCompiler()
+  {
+    // Process-lifetime singleton: the modules stay loaded until exit.
+    if (mLibrary != nullptr) {
+      mLibrary->dxc.Reset();
+    }
+  }
+
+  namespace
+  {
+    /** What one IDxcCompiler3::Compile returned: success, messages and the requested output's bytes. */
+    struct DxcRun
+    {
+      bool succeeded = false;
+      std::string messages;
+      std::vector<std::uint8_t> output;
+    };
+
+    [[nodiscard]] DxcRun RunDxc(
+      const dxc::CreateInstanceProc create, const std::string_view text, const std::vector<std::wstring>& arguments,
+      const dxc::OutKind kind
+    )
+    {
+      DxcRun run;
+      std::vector<const wchar_t*> argumentPointers;
+      argumentPointers.reserve(arguments.size());
+      for (const std::wstring& argument : arguments) {
+        argumentPointers.push_back(argument.c_str());
+      }
+      dxc::DxcBuffer source{};
+      source.Ptr = text.data();
+      source.Size = text.size();
+      source.Encoding = dxc::DXC_CP_UTF8;
+
+      ThreadDxc* const dxc = ThisThreadDxc(create);
+      if (dxc == nullptr) {
+        run.messages = "DxcCreateInstance failed on this thread";
+        return run;
+      }
+      dxc::Ref<dxc::IDxcResult> compiled;
+      const HRESULT hr = dxc->dxc->Compile(
+        &source, argumentPointers.data(), static_cast<std::uint32_t>(argumentPointers.size()), nullptr, dxc::IDxcResult::kIid,
+        compiled.Put()
+      );
+      if (FAILED(hr) || !compiled) {
+        char message[64]{};
+        std::snprintf(message, sizeof(message), "IDxcCompiler3::Compile failed (0x%08lX)", static_cast<unsigned long>(hr));
+        run.messages = message;
+        return run;
+      }
+      dxc::Ref<dxc::IDxcBlobUtf8> errors;
+      if (SUCCEEDED(compiled->GetOutput(dxc::DXC_OUT_ERRORS, dxc::IDxcBlobUtf8::kIid, errors.Put(), nullptr)) && errors &&
+          errors->GetStringLength() != 0U) {
+        run.messages.assign(errors->GetStringPointer(), errors->GetStringLength());
+      }
+      HRESULT status = E_FAIL;
+      compiled->GetStatus(&status);
+      if (FAILED(status)) {
+        return run;
+      }
+      dxc::Ref<dxc::IDxcBlob> object;
+      if (FAILED(compiled->GetOutput(kind, dxc::IDxcBlob::kIid, object.Put(), nullptr)) || !object) {
+        run.messages += "\nno output produced";
+        return run;
+      }
+      const auto* const bytes = static_cast<const std::uint8_t*>(object->GetBufferPointer());
+      run.output.assign(bytes, bytes + object->GetBufferSize());
+      run.succeeded = true;
+      return run;
+    }
+  } // namespace
+
+  CompiledShader ShaderCompiler::Run(const std::string_view hlsl, const std::vector<std::wstring>& arguments) const
+  {
+    DxcRun run = RunDxc(mLibrary->create, hlsl, arguments, dxc::DXC_OUT_OBJECT);
+    CompiledShader result;
+    result.succeeded = run.succeeded;
+    result.code = std::move(run.output);
+    result.messages = std::move(run.messages);
+    return result;
+  }
+
+  // DXIL reflection serves the Direct3D 12 backend only. The Linux client compiles SPIR-V for Vulkan,
+  // which EffectRuntime reflects itself (SpirvReflect); these answer as for an unreadable shader.
+  std::uint64_t ShaderCompiler::ReflectTextureSlots(const std::vector<std::uint8_t>&) const
+  {
+    return ~std::uint64_t{0};
+  }
+
+  std::vector<ShaderInput> ShaderCompiler::ReflectInputs(const std::vector<std::uint8_t>&) const
+  {
+    return {};
+  }
+
+  bool ShaderCompiler::Preprocess(
+    const std::string_view source, const std::string_view sourceName, const std::vector<std::pair<std::string, std::string>>& defines,
+    std::string& output, std::string& messages
+  ) const
+  {
+    output.clear();
+    messages.clear();
+    if (mLibrary == nullptr) {
+      messages = mLoadError;
+      return false;
+    }
+    std::vector<std::wstring> arguments{
+      // Preprocess only: the text lands in DXC_OUT_HLSL. Macro arguments expand before token pasting,
+      // as in FXC's preprocessor (d3dcompiler_47's D3DPreprocess).
+      L"-P",
+      L"-flegacy-macro-expansion",
+    };
+    for (const auto& [name, value] : defines) {
+      arguments.push_back(L"-D");
+      arguments.push_back(Widen(name) + L"=" + Widen(value));
+    }
+    // The file name, for the #line markers and the messages. DXC reads a leading '/' as an option
+    // (it takes '/' like '-'), so the game's "/effects/x.fx" goes in without it.
+    std::string_view name = sourceName;
+    while (!name.empty() && (name.front() == '/' || name.front() == '\\')) {
+      name.remove_prefix(1U);
+    }
+    arguments.push_back(Widen(name.empty() ? std::string_view("effect.fx") : name));
+
+    DxcRun run = RunDxc(mLibrary->create, source, arguments, dxc::DXC_OUT_HLSL);
+    messages = std::move(run.messages);
+    if (!run.succeeded) {
+      return false;
+    }
+    output.assign(reinterpret_cast<const char*>(run.output.data()), run.output.size());
+    while (!output.empty() && output.back() == '\0') {
+      output.pop_back(); // the blob may end with its terminator
+    }
+    return true;
+  }
+#endif // defined(_WIN32)
 } // namespace gpg::gal::effects

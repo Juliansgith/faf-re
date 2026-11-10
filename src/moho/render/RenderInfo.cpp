@@ -8,7 +8,14 @@
 #include <fstream>
 
 #include <Windows.h>
+#if defined(_WIN32)
 #include <psapi.h>
+#else
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <string>
+#endif
 
 #include "gpg/core/utils/Global.h"
 #include "gpg/core/utils/Logging.h"
@@ -64,6 +71,16 @@ namespace moho
     {
       files = 0U;
       bytes = 0U;
+#if !defined(_WIN32)
+      std::error_code error;
+      for (const auto& entry : std::filesystem::directory_iterator(directory, error)) {
+        std::error_code entryError;
+        if (entry.is_regular_file(entryError)) {
+          ++files;
+          bytes += static_cast<std::uint64_t>(entry.file_size(entryError));
+        }
+      }
+#else
       WIN32_FIND_DATAA entry{};
       const HANDLE search = ::FindFirstFileA((directory + "\\*").c_str(), &entry);
       if (search == INVALID_HANDLE_VALUE) {
@@ -76,6 +93,7 @@ namespace moho
         }
       } while (::FindNextFileA(search, &entry) != FALSE);
       ::FindClose(search);
+#endif
     }
 
     /** Prints `text` to the console and the log, one line at a time. */
@@ -174,6 +192,7 @@ namespace moho
       AppendLine(text, "  render profile: off (set FAF_GPU_PROFILE=<frames> for render CPU and GPU times)");
     }
 
+#if defined(_WIN32)
     PROCESS_MEMORY_COUNTERS_EX process{};
     process.cb = sizeof(process);
     if (::GetProcessMemoryInfo(::GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&process), sizeof(process))) {
@@ -182,6 +201,26 @@ namespace moho
         Megabytes(process.WorkingSetSize), Megabytes(process.PeakWorkingSetSize)
       );
     }
+#else
+    // Linux client: /proc/self/status (kB): RssAnon ~ private, VmRSS the working set, VmHWM its peak.
+    {
+      std::ifstream status("/proc/self/status");
+      std::string line;
+      double privateKb = 0.0, rssKb = 0.0, peakKb = 0.0;
+      while (std::getline(status, line)) {
+        const auto value = [&line](const char* const key, double& out) {
+          if (line.rfind(key, 0) == 0) {
+            out = std::strtod(line.c_str() + std::strlen(key), nullptr);
+          }
+        };
+        value("RssAnon:", privateKb);
+        value("VmRSS:", rssKb);
+        value("VmHWM:", peakKb);
+      }
+      AppendLine(text, "  process: %.0f MB private, %.0f MB resident (peak %.0f MB)", privateKb / 1024.0, rssKb / 1024.0,
+                 peakKb / 1024.0);
+    }
+#endif
     gpg::HeapStats heap{};
     gpg::GetHeapInfo(&heap);
     AppendLine(

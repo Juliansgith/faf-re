@@ -22,7 +22,14 @@
 #include <vector>
 
 #include <dxgiformat.h>
+#if defined(_WIN32)
 #include <windows.h>
+#else
+// The Linux client: only HRESULT, declared as both the POSIX <Windows.h> shim and DirectX-Headers'
+// wsl/winadapter.h declare it, so this header serves translation units built with either one
+// (ImageCodecDirectXTex.cpp goes with DirectXTex, which is built without the shim).
+typedef std::int32_t HRESULT;
+#endif
 
 namespace gpg::gal::imaging
 {

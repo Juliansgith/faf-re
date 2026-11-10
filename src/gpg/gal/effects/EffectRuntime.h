@@ -165,7 +165,7 @@ namespace gpg::gal::effects
     std::uint64_t mHash = 0xCBF29CE484222325ULL;
   };
 
-  /** The directory compiled shaders are kept in (FAF_SHADER_CACHE_DIR, else under %LOCALAPPDATA%). */
+  /** The directory compiled shaders are kept in (FAF_SHADER_CACHE_DIR, else under %LOCALAPPDATA%; on Linux $XDG_CACHE_HOME or ~/.cache). */
   [[nodiscard]] const std::string& ShaderCacheDirectory();
 } // namespace gpg::gal::effects
 

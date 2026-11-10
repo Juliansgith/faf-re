@@ -3,10 +3,15 @@
 #include <cstddef>
 #include "legacy/containers/Vector.h"
 #include <cstdint>
+#if defined(_WIN32)
 #include <Windows.h>
 #include <mmreg.h>
 #include <mmsystem.h>
 #include <xact3.h>
+#else
+// The Linux client: the XACT SDK names below on FAudio's FACT (see the header).
+#include "moho/audio/AudioLinux.h"
+#endif
 
 #include "gpg/core/containers/String.h"
 #include "gpg/core/streams/MemBufferStream.h"
@@ -57,7 +62,11 @@ namespace moho
     DWORD globalSettingsAllocAttributes;
     XACT_FILEIO_CALLBACKS fileIOCallbacks;
     XACT_NOTIFICATION_CALLBACK fnNotificationCallback;
+#if defined(_WIN32)
     PWSTR pRendererID;
+#else
+    std::int16_t* pRendererID; // FACT's Win32 wchar_t*, a renderer index digit; null: the default device
+#endif
   };
   static_assert(sizeof(AudioRuntimeParams) == (sizeof(void*) == 4 ? 0x24 : 0x40), "AudioRuntimeParams size mismatch");
   static_assert(offsetof(AudioRuntimeParams, fnNotificationCallback) == offsetof(XACT_RUNTIME_PARAMETERS, fnNotificationCallback), "XACT runtime callback offset mismatch");

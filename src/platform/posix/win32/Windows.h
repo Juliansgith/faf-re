@@ -749,6 +749,7 @@ BOOL GetCursorPos(POINT* point);
 BOOL ClientToScreen(HWND window, POINT* point);
 BOOL ScreenToClient(HWND window, POINT* point);
 BOOL SetWindowPos(HWND window, HWND insertAfter, int x, int y, int width, int height, UINT flags);
+BOOL IsWindowVisible(HWND window);
 #define HWND_TOP (reinterpret_cast<HWND>(0))
 #define HWND_TOPMOST (reinterpret_cast<HWND>(-1))
 #define HWND_NOTOPMOST (reinterpret_cast<HWND>(-2))
@@ -757,6 +758,279 @@ BOOL SetWindowPos(HWND window, HWND insertAfter, int x, int y, int width, int he
 #define SWP_NOZORDER 0x0004u
 #define SWP_NOACTIVATE 0x0010u
 #define SWP_SHOWWINDOW 0x0040u
+HWND SetCapture(HWND window);
+BOOL ReleaseCapture();
+HWND GetCapture();
+BOOL ClipCursor(const RECT* rect);
+int ShowCursor(BOOL show);
+HCURSOR SetCursor(HCURSOR cursor);
+BOOL IsIconic(HWND window);
+#define HWND_BOTTOM (reinterpret_cast<HWND>(1))
+#define SWP_NOOWNERZORDER 0x0200u
+// Displays (SDL's): an HMONITOR holds an SDL_DisplayID.
+struct MONITORINFO
+{
+  DWORD cbSize;
+  RECT rcMonitor;
+  RECT rcWork;
+  DWORD dwFlags;
+};
+#define MONITOR_DEFAULTTONULL 0x0u
+#define MONITOR_DEFAULTTOPRIMARY 0x1u
+#define MONITOR_DEFAULTTONEAREST 0x2u
+#define MONITORINFOF_PRIMARY 0x1u
+HMONITOR MonitorFromPoint(POINT point, DWORD flags);
+HMONITOR MonitorFromWindow(HWND window, DWORD flags);
+BOOL GetMonitorInfoW(HMONITOR monitor, MONITORINFO* info);
+// The system settings the client reads or sets: the screen saver (SDL's), the wheel's lines; every
+// other one answers FALSE (nothing to read on Linux).
+BOOL SystemParametersInfoW(UINT action, UINT uiParam, void* pvParam, UINT winIni);
+#define SPI_GETSCREENSAVEACTIVE 0x0010u
+#define SPI_SETSCREENSAVEACTIVE 0x0011u
+#define SPI_GETFONTSMOOTHING 0x004Au
+#define SPI_GETWHEELSCROLLLINES 0x0068u
+#define SPI_GETFONTSMOOTHINGTYPE 0x200Au
+#define SPI_GETFONTSMOOTHINGCONTRAST 0x200Cu
+#define SPI_GETFONTSMOOTHINGORIENTATION 0x2012u
+// Keyboard focus and key state: SetFocus on the SDL window focuses the wx window that last had the focus
+// in it; GetKeyState / GetAsyncKeyState read SDL's keyboard and mouse state by virtual-key code.
+HWND SetFocus(HWND window);
+HWND GetFocus();
+HWND GetForegroundWindow();
+short GetKeyState(int virtualKey);
+short GetAsyncKeyState(int virtualKey);
+// The window messages platform/sdl builds from SDL's events (wx-lite hands them to the windows'
+// MSWWindowProc, as wxWindows/MSW's window procedure did), with their Win32 values.
+using WPARAM = UINT_PTR;
+using LPARAM = LONG_PTR;
+using LRESULT = LONG_PTR;
+#define LOWORD(l) (static_cast<WORD>(static_cast<std::uintptr_t>(l) & 0xFFFFu))
+#define HIWORD(l) (static_cast<WORD>((static_cast<std::uintptr_t>(l) >> 16) & 0xFFFFu))
+#define MAKELONG(a, b)                                                                                     \
+  (static_cast<LONG>(static_cast<std::uint32_t>(static_cast<WORD>(a)) |                                    \
+                     (static_cast<std::uint32_t>(static_cast<WORD>(b)) << 16)))
+#define MAKELPARAM(l, h) (static_cast<LPARAM>(static_cast<std::uint32_t>(MAKELONG(l, h))))
+#define MAKEWPARAM(l, h) (static_cast<WPARAM>(static_cast<std::uint32_t>(MAKELONG(l, h))))
+#define GET_X_LPARAM(lp) (static_cast<int>(static_cast<short>(LOWORD(lp))))
+#define GET_Y_LPARAM(lp) (static_cast<int>(static_cast<short>(HIWORD(lp))))
+#define GET_WHEEL_DELTA_WPARAM(wp) (static_cast<short>(HIWORD(wp)))
+#define GET_XBUTTON_WPARAM(wp) (HIWORD(wp))
+#define WM_NULL 0x0000u
+#define WM_CREATE 0x0001u
+#define WM_DESTROY 0x0002u
+#define WM_MOVE 0x0003u
+#define WM_SIZE 0x0005u
+#define WM_ACTIVATE 0x0006u
+#define WM_SETFOCUS 0x0007u
+#define WM_KILLFOCUS 0x0008u
+#define WM_ENABLE 0x000Au
+#define WM_PAINT 0x000Fu
+#define WM_CLOSE 0x0010u
+#define WM_QUIT 0x0012u
+#define WM_ERASEBKGND 0x0014u
+#define WM_SHOWWINDOW 0x0018u
+#define WM_ACTIVATEAPP 0x001Cu
+#define WM_SETCURSOR 0x0020u
+#define WM_GETMINMAXINFO 0x0024u
+#define WM_WINDOWPOSCHANGED 0x0047u
+#define WM_DISPLAYCHANGE 0x007Eu
+#define WM_NCHITTEST 0x0084u
+#define WM_KEYFIRST 0x0100u
+#define WM_KEYDOWN 0x0100u
+#define WM_KEYUP 0x0101u
+#define WM_CHAR 0x0102u
+#define WM_DEADCHAR 0x0103u
+#define WM_SYSKEYDOWN 0x0104u
+#define WM_SYSKEYUP 0x0105u
+#define WM_SYSCHAR 0x0106u
+#define WM_KEYLAST 0x0109u
+#define WM_COMMAND 0x0111u
+#define WM_SYSCOMMAND 0x0112u
+#define WM_TIMER 0x0113u
+#define WM_MOUSEFIRST 0x0200u
+#define WM_MOUSEMOVE 0x0200u
+#define WM_LBUTTONDOWN 0x0201u
+#define WM_LBUTTONUP 0x0202u
+#define WM_LBUTTONDBLCLK 0x0203u
+#define WM_RBUTTONDOWN 0x0204u
+#define WM_RBUTTONUP 0x0205u
+#define WM_RBUTTONDBLCLK 0x0206u
+#define WM_MBUTTONDOWN 0x0207u
+#define WM_MBUTTONUP 0x0208u
+#define WM_MBUTTONDBLCLK 0x0209u
+#define WM_MOUSEWHEEL 0x020Au
+#define WM_XBUTTONDOWN 0x020Bu
+#define WM_XBUTTONUP 0x020Cu
+#define WM_XBUTTONDBLCLK 0x020Du
+#define WM_MOUSEHWHEEL 0x020Eu
+#define WM_MOUSELAST 0x020Eu
+#define WM_CAPTURECHANGED 0x0215u
+#define WM_ENTERSIZEMOVE 0x0231u
+#define WM_EXITSIZEMOVE 0x0232u
+#define WM_MOUSELEAVE 0x02A3u
+#define WM_USER 0x0400u
+#define WM_APP 0x8000u
+#define SIZE_RESTORED 0u
+#define SIZE_MINIMIZED 1u
+#define SIZE_MAXIMIZED 2u
+#define SIZE_MAXSHOW 3u
+#define SIZE_MAXHIDE 4u
+#define WA_INACTIVE 0u
+#define WA_ACTIVE 1u
+#define WA_CLICKACTIVE 2u
+#define SC_SIZE 0xF000u
+#define SC_MOVE 0xF010u
+#define SC_MINIMIZE 0xF020u
+#define SC_MAXIMIZE 0xF030u
+#define SC_CLOSE 0xF060u
+#define SC_KEYMENU 0xF100u
+#define SC_RESTORE 0xF120u
+#define SC_SCREENSAVE 0xF140u
+#define SC_MONITORPOWER 0xF170u
+#define HTCLIENT 1
+#define MK_LBUTTON 0x0001u
+#define MK_RBUTTON 0x0002u
+#define MK_SHIFT 0x0004u
+#define MK_CONTROL 0x0008u
+#define MK_MBUTTON 0x0010u
+#define MK_XBUTTON1 0x0020u
+#define MK_XBUTTON2 0x0040u
+#define XBUTTON1 0x0001u
+#define XBUTTON2 0x0002u
+#define WHEEL_DELTA 120
+#define KF_EXTENDED 0x0100u
+#define KF_ALTDOWN 0x2000u
+#define KF_REPEAT 0x4000u
+#define KF_UP 0x8000u
+// Virtual-key codes (WinUser.h): the engine's key map and wx's key translation are keyed on them.
+#define VK_LBUTTON 0x01
+#define VK_RBUTTON 0x02
+#define VK_CANCEL 0x03
+#define VK_MBUTTON 0x04
+#define VK_XBUTTON1 0x05
+#define VK_XBUTTON2 0x06
+#define VK_BACK 0x08
+#define VK_TAB 0x09
+#define VK_CLEAR 0x0C
+#define VK_RETURN 0x0D
+#define VK_SHIFT 0x10
+#define VK_CONTROL 0x11
+#define VK_MENU 0x12
+#define VK_PAUSE 0x13
+#define VK_CAPITAL 0x14
+#define VK_ESCAPE 0x1B
+#define VK_SPACE 0x20
+#define VK_PRIOR 0x21
+#define VK_NEXT 0x22
+#define VK_END 0x23
+#define VK_HOME 0x24
+#define VK_LEFT 0x25
+#define VK_UP 0x26
+#define VK_RIGHT 0x27
+#define VK_DOWN 0x28
+#define VK_SELECT 0x29
+#define VK_PRINT 0x2A
+#define VK_EXECUTE 0x2B
+#define VK_SNAPSHOT 0x2C
+#define VK_INSERT 0x2D
+#define VK_DELETE 0x2E
+#define VK_HELP 0x2F
+#define VK_LWIN 0x5B
+#define VK_RWIN 0x5C
+#define VK_APPS 0x5D
+#define VK_SLEEP 0x5F
+#define VK_NUMPAD0 0x60
+#define VK_NUMPAD1 0x61
+#define VK_NUMPAD2 0x62
+#define VK_NUMPAD3 0x63
+#define VK_NUMPAD4 0x64
+#define VK_NUMPAD5 0x65
+#define VK_NUMPAD6 0x66
+#define VK_NUMPAD7 0x67
+#define VK_NUMPAD8 0x68
+#define VK_NUMPAD9 0x69
+#define VK_MULTIPLY 0x6A
+#define VK_ADD 0x6B
+#define VK_SEPARATOR 0x6C
+#define VK_SUBTRACT 0x6D
+#define VK_DECIMAL 0x6E
+#define VK_DIVIDE 0x6F
+#define VK_F1 0x70
+#define VK_F2 0x71
+#define VK_F3 0x72
+#define VK_F4 0x73
+#define VK_F5 0x74
+#define VK_F6 0x75
+#define VK_F7 0x76
+#define VK_F8 0x77
+#define VK_F9 0x78
+#define VK_F10 0x79
+#define VK_F11 0x7A
+#define VK_F12 0x7B
+#define VK_F13 0x7C
+#define VK_F14 0x7D
+#define VK_F15 0x7E
+#define VK_F16 0x7F
+#define VK_F17 0x80
+#define VK_F18 0x81
+#define VK_F19 0x82
+#define VK_F20 0x83
+#define VK_F21 0x84
+#define VK_F22 0x85
+#define VK_F23 0x86
+#define VK_F24 0x87
+#define VK_NUMLOCK 0x90
+#define VK_SCROLL 0x91
+#define VK_LSHIFT 0xA0
+#define VK_RSHIFT 0xA1
+#define VK_LCONTROL 0xA2
+#define VK_RCONTROL 0xA3
+#define VK_LMENU 0xA4
+#define VK_RMENU 0xA5
+#define VK_OEM_1 0xBA
+#define VK_OEM_PLUS 0xBB
+#define VK_OEM_COMMA 0xBC
+#define VK_OEM_MINUS 0xBD
+#define VK_OEM_PERIOD 0xBE
+#define VK_OEM_2 0xBF
+#define VK_OEM_3 0xC0
+#define VK_OEM_4 0xDB
+#define VK_OEM_5 0xDC
+#define VK_OEM_6 0xDD
+#define VK_OEM_7 0xDE
+#define VK_OEM_8 0xDF
+#define VK_OEM_102 0xE2
+// Shell and timer entry points the client's startup calls: ShellExecute opens documents and URLs with
+// xdg-open; the multimedia timer resolution is a no-op (Linux timers are already fine-grained).
+#define SW_HIDE 0
+#define SW_SHOWNORMAL 1
+#define SW_SHOW 5
+#define SW_SHOWDEFAULT 10
+HINSTANCE ShellExecuteW(HWND window, const wchar_t* operation, const wchar_t* file, const wchar_t* parameters,
+                        const wchar_t* directory, int showCommand);
+HINSTANCE ShellExecuteA(HWND window, const char* operation, const char* file, const char* parameters,
+                        const char* directory, int showCommand);
+#define TIMERR_NOERROR 0u
+UINT timeBeginPeriod(UINT period);
+UINT timeEndPeriod(UINT period);
+union ULARGE_INTEGER
+{
+  struct
+  {
+    DWORD LowPart;
+    DWORD HighPart;
+  };
+  std::uint64_t QuadPart;
+};
+/// Copies a file (backslashes read as slashes); `failIfExists` keeps an existing destination.
+BOOL CopyFileW(const wchar_t* existingFile, const wchar_t* newFile, BOOL failIfExists);
+/// Waits for one of `handles` or for window input (SDL events) at most `milliseconds`: WAIT_OBJECT_0 + i,
+/// WAIT_OBJECT_0 + count for input, or WAIT_TIMEOUT.
+DWORD MsgWaitForMultipleObjectsEx(DWORD count, const HANDLE* handles, DWORD milliseconds, DWORD wakeMask, DWORD flags);
+#define QS_ALLINPUT 0x04FFu
+#define MWMO_ALERTABLE 0x0002u
+#define MWMO_INPUTAVAILABLE 0x0004u
+LONG CompareFileTime(const FILETIME* first, const FILETIME* second);
 inline std::tm* _localtime64(const __time64_t* const time) noexcept
 {
   const std::time_t value = static_cast<std::time_t>(*time);

@@ -46,6 +46,32 @@ namespace gpg::gal::effects
   {
     static_assert(kShadowCascadeVectors == 9U, "ShadowCascadeDeclaration's array length");
 
+#if !defined(_WIN32)
+    /**
+     * The Linux client: a pass's compile-time arguments as an entry-point key, with whitespace kept only
+     * between two identifier or number characters. Its preprocessor (DXC, ShaderCompiler::Preprocess) keeps
+     * the source's spacing, where D3DPreprocess spaces every token, so `PBR_UEF_PS(true,true, false,0,0 )` and
+     * `PBR_UEF_PS(true, true, false, 0, 0)` (both in mesh.fx) must still share one entry point, as they do
+     * with FXC's text.
+     */
+    [[nodiscard]] std::string EntryArgumentKey(const std::string_view squeezed)
+    {
+      std::string key;
+      key.reserve(squeezed.size());
+      for (std::size_t index = 0U; index < squeezed.size(); ++index) {
+        const char c = squeezed[index];
+        if (c == ' ') {
+          if (!key.empty() && index + 1U < squeezed.size() && IsIdentifierChar(key.back()) && IsIdentifierChar(squeezed[index + 1U])) {
+            key.push_back(' ');
+          }
+          continue;
+        }
+        key.push_back(c);
+      }
+      return key;
+    }
+#endif
+
     // Engine addition (ren_ShadowCascades): the lighting shadow samplers' own type; see ShadowCascades.h.
     // The shadow targets have one mip, so every lookup reads level 0 and needs no derivatives: a pixel's
     // neighbours may sit in another tile.
@@ -1356,7 +1382,11 @@ float4 tex3Dlod(faf_sampler s, float4 uv) { return s.t3.SampleLevel(s.s, uv.xyz,
               continue;
             }
             const std::string arguments = Squeeze(reference->arguments);
+#if defined(_WIN32)
             const auto key = std::make_tuple(stage, reference->function, arguments);
+#else
+            const auto key = std::make_tuple(stage, reference->function, EntryArgumentKey(arguments));
+#endif
             const auto known = entryNames.find(key);
             if (known != entryNames.end()) {
               reference->entry = known->second;
@@ -1442,7 +1472,11 @@ float4 tex3Dlod(faf_sampler s, float4 uv) { return s.t3.SampleLevel(s.s, uv.xyz,
           const std::optional<AlphaTestDesc> alphaTest = (stage == ShaderStage::Pixel) ? pass.alphaTest : std::nullopt;
           const std::string alphaTestKey =
             alphaTest.has_value() ? "|alphatest " + std::to_string(alphaTest->func) + " " + std::to_string(alphaTest->ref) : std::string();
+#if defined(_WIN32)
           const auto key = std::make_tuple(stage, reference->function, arguments + alphaTestKey);
+#else
+          const auto key = std::make_tuple(stage, reference->function, EntryArgumentKey(arguments) + alphaTestKey);
+#endif
           const auto known = entryNames.find(key);
           if (known != entryNames.end()) {
             reference->entry = known->second;

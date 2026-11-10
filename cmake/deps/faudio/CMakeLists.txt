@@ -6,7 +6,9 @@ if(NOT EXISTS "${_faudio}/CMakeLists.txt")
   message(FATAL_ERROR "FAudio is missing: ${_faudio} (cmake/FafDependencies.cmake downloads it)")
 endif()
 
-set(BUILD_SHARED_LIBS OFF)
+# FAudio declares BUILD_SHARED_LIBS with option() under CMake 3.10's policies, which ignore a plain
+# variable (CMP0077): the cache entry decides, so it is forced here and FAudio makes FAudio-static.
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(BUILD_SDL3 ON CACHE BOOL "" FORCE)
 set(BUILD_UTILS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)

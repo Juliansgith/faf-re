@@ -14,11 +14,18 @@
 #include <thread>
 #include <unordered_set>
 
+#if defined(_WIN32)
 #include <d3d11.h>
 #include <wrl/client.h>
 // D3DX11 (DirectX SDK, June 2010): only the declarations come from the
 // header; the exports are linked at run time from d3dx11_43.dll.
 #include <d3dx11tex.h>
+#else
+// The Linux client: no D3DX11 and no WARP device; DirectXTex decodes and encodes every texture.
+#include <cstdio>
+#include <filesystem>
+#include <system_error>
+#endif
 
 #include "gpg/core/utils/Logging.h"
 #include "gpg/gal/backends/dxgi/DxgiFormats.h"
@@ -26,6 +33,7 @@
 
 namespace gpg::gal::imaging
 {
+#if defined(_WIN32)
   using Microsoft::WRL::ComPtr;
 
   struct ImageCodec::State
@@ -47,6 +55,11 @@ namespace gpg::gal::imaging
       }
     }
   };
+#else
+  struct ImageCodec::State
+  {
+  };
+#endif
 
   void Image::Allocate(
     const DXGI_FORMAT imageFormat,
@@ -107,6 +120,7 @@ namespace gpg::gal::imaging
     return true;
   }
 
+#if defined(_WIN32)
   std::unique_ptr<ImageCodec::State> ImageCodec::LoadD3dx()
   {
     char forced[8]{};
@@ -147,6 +161,17 @@ namespace gpg::gal::imaging
   {
     return mState->createTexture != nullptr;
   }
+#else
+  std::unique_ptr<ImageCodec::State> ImageCodec::LoadD3dx()
+  {
+    return nullptr; // the Linux client: DirectXTex only
+  }
+
+  bool ImageCodec::UsesD3dx() const noexcept
+  {
+    return false;
+  }
+#endif
 
   HRESULT ImageCodec::DecodeFull(const void* const data, const std::size_t bytes, const DecodeOptions& options, Image& outImage)
   {
@@ -372,7 +397,11 @@ namespace gpg::gal::imaging
         return {};
       }
       char name[48]{};
+#if defined(_WIN32)
       std::snprintf(name, sizeof(name), "textures\\%016llx.img", static_cast<unsigned long long>(key));
+#else
+      std::snprintf(name, sizeof(name), "textures/%016llx.img", static_cast<unsigned long long>(key));
+#endif
       return directory + name;
     }
 
@@ -413,6 +442,18 @@ namespace gpg::gal::imaging
         if (directory.empty()) {
           return;
         }
+#if !defined(_WIN32)
+        std::error_code error;
+        for (std::filesystem::directory_iterator entry(directory + "textures", error), end; !error && entry != end;
+             entry.increment(error)) {
+          const std::string name = entry->path().filename().string();
+          char* stop = nullptr;
+          const unsigned long long key = std::strtoull(name.c_str(), &stop, 16);
+          if (stop == name.c_str() + 16 && std::strcmp(stop, ".img") == 0) {
+            mKeys.insert(static_cast<std::uint64_t>(key));
+          }
+        }
+#else
         WIN32_FIND_DATAA found{};
         HANDLE const search = ::FindFirstFileA((directory + "textures\\*.img").c_str(), &found);
         if (search == INVALID_HANDLE_VALUE) {
@@ -426,6 +467,7 @@ namespace gpg::gal::imaging
           }
         } while (::FindNextFileA(search, &found) != FALSE);
         ::FindClose(search);
+#endif
       }
 
       std::mutex mMutex;
@@ -499,10 +541,18 @@ namespace gpg::gal::imaging
         ::WriteFile(file, image.bytes.data(), static_cast<DWORD>(image.bytes.size()), &written, nullptr) &&
         written == image.bytes.size();
       ::CloseHandle(file);
+#if defined(_WIN32)
       if (!ok || !::MoveFileExA(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
         ::DeleteFileA(temporary.c_str());
         return;
       }
+#else
+      // rename(2) replaces the target in one step, as MOVEFILE_REPLACE_EXISTING does.
+      if (!ok || std::rename(temporary.c_str(), path.c_str()) != 0) {
+        ::DeleteFileA(temporary.c_str());
+        return;
+      }
+#endif
       DecodeCacheIndex::Instance().Add(key);
     }
 
@@ -643,6 +693,7 @@ namespace gpg::gal::imaging
     if (!UsesD3dx()) {
       return GetImageSizeWithDirectXTex(data, bytes, outWidth, outHeight);
     }
+#if defined(_WIN32)
     const std::lock_guard<std::mutex> lock(mMutex);
     D3DX11_IMAGE_INFO info{};
     const HRESULT result = mState->getImageInfo(data, bytes, nullptr, &info, nullptr);
@@ -651,8 +702,17 @@ namespace gpg::gal::imaging
       outHeight = info.Height;
     }
     return result;
+#else
+    return E_FAIL;
+#endif
   }
 
+#if !defined(_WIN32)
+  HRESULT ImageCodec::DecodeWithD3dx(const void*, std::size_t, const DecodeOptions&, Image&)
+  {
+    return E_FAIL; // never called: UsesD3dx() is false on Linux
+  }
+#else
   HRESULT ImageCodec::DecodeWithD3dx(const void* const data, const std::size_t bytes, const DecodeOptions& options, Image& outImage)
   {
     const std::lock_guard<std::mutex> lock(mMutex);
@@ -782,8 +842,11 @@ namespace gpg::gal::imaging
     return E_NOINTERFACE;
   }
 
+#endif // !defined(_WIN32)
+
   namespace
   {
+#if defined(_WIN32)
     HRESULT CreateEncodable(ID3D11Device* const device, const Image& image, ComPtr<ID3D11Texture2D>& outTexture)
     {
       D3D11_TEXTURE2D_DESC desc{};
@@ -810,6 +873,7 @@ namespace gpg::gal::imaging
       }
       return device->CreateTexture2D(&desc, initial.data(), &outTexture);
     }
+#endif
 
     struct DdsPixelFormat
     {
@@ -958,6 +1022,9 @@ namespace gpg::gal::imaging
     if (!UsesD3dx()) {
       return EncodeWithDirectXTex(image, format, outBytes);
     }
+#if !defined(_WIN32)
+    return E_FAIL;
+#else
     const std::lock_guard<std::mutex> lock(mMutex);
     ComPtr<ID3D11Texture2D> texture;
     HRESULT result = CreateEncodable(mState->device.Get(), image, texture);
@@ -982,6 +1049,7 @@ namespace gpg::gal::imaging
     const auto* const begin = static_cast<const std::uint8_t*>(blob->GetBufferPointer());
     outBytes.assign(begin, begin + blob->GetBufferSize());
     return S_OK;
+#endif
   }
 
   namespace
@@ -1001,6 +1069,48 @@ namespace gpg::gal::imaging
       }
       const Image::Subresource& top = image.subresources.front();
       const std::uint32_t rowBytes = top.width * 4U;
+#if !defined(_WIN32)
+      // BITMAPFILEHEADER (14 bytes) and BITMAPINFOHEADER (40 bytes), little-endian, top-down rows.
+      const std::uint32_t imageBytes = rowBytes * top.height;
+      std::vector<std::uint8_t> file(54U + static_cast<std::size_t>(imageBytes));
+      const auto put16 = [&file](const std::size_t at, const std::uint32_t value) {
+        file[at] = static_cast<std::uint8_t>(value);
+        file[at + 1U] = static_cast<std::uint8_t>(value >> 8U);
+      };
+      const auto put32 = [&file](const std::size_t at, const std::uint32_t value) {
+        for (std::size_t index = 0U; index < 4U; ++index) {
+          file[at + index] = static_cast<std::uint8_t>(value >> (8U * index));
+        }
+      };
+      put16(0U, 0x4D42U);                // "BM"
+      put32(2U, 54U + imageBytes);       // bfSize
+      put32(10U, 54U);                   // bfOffBits
+      put32(14U, 40U);                   // biSize
+      put32(18U, top.width);             // biWidth
+      put32(22U, static_cast<std::uint32_t>(-static_cast<std::int32_t>(top.height))); // biHeight: top-down
+      put16(26U, 1U);                    // biPlanes
+      put16(28U, 32U);                   // biBitCount
+      put32(30U, 0U);                    // biCompression: BI_RGB
+      put32(34U, imageBytes);            // biSizeImage
+      for (std::uint32_t row = 0U; row < top.height; ++row) {
+        const std::uint8_t* const source = image.bytes.data() + top.offset + static_cast<std::size_t>(row) * top.rowPitch;
+        std::uint8_t* const target = file.data() + 54U + static_cast<std::size_t>(row) * rowBytes;
+        std::memcpy(target, source, rowBytes);
+        if (rgba) {
+          for (std::uint32_t x = 0U; x < top.width; ++x) {
+            std::swap(target[x * 4U], target[x * 4U + 2U]);
+          }
+        }
+      }
+      std::FILE* const handle = std::fopen(path, "wb");
+      if (handle == nullptr) {
+        outResult = E_FAIL;
+        return true;
+      }
+      const bool ok = std::fwrite(file.data(), 1U, file.size(), handle) == file.size();
+      outResult = (std::fclose(handle) == 0 && ok) ? S_OK : E_FAIL;
+      return true;
+#else
       BITMAPINFOHEADER info{};
       info.biSize = sizeof(info);
       info.biWidth = static_cast<LONG>(top.width);
@@ -1038,6 +1148,7 @@ namespace gpg::gal::imaging
       ::CloseHandle(handle);
       outResult = ok ? S_OK : E_FAIL;
       return true;
+#endif
     }
   } // namespace
 
@@ -1065,6 +1176,9 @@ namespace gpg::gal::imaging
       }
       return result;
     }
+#if !defined(_WIN32)
+    return E_FAIL;
+#else
     const std::lock_guard<std::mutex> lock(mMutex);
     ComPtr<ID3D11Texture2D> texture;
     HRESULT result = CreateEncodable(mState->device.Get(), image, texture);
@@ -1079,6 +1193,7 @@ namespace gpg::gal::imaging
                  image.width, image.height, static_cast<unsigned long>(result));
     }
     return result;
+#endif
   }
 
   FileFormat ImageCodec::FromGalFormat(const int galFormat) noexcept

@@ -1,5 +1,12 @@
 #include "moho/sim/ReplayTimeline.h"
 
+#if !defined(_WIN32)
+#include <cerrno>
+#include <csignal> // kill: is a process running
+#include <sys/prctl.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -205,10 +212,15 @@ namespace moho
         const unsigned long owner = std::strtoul(entry.path().filename().string().c_str(), nullptr, 10);
         bool running = false;
         if (owner != 0u && owner != self) {
+#if defined(_WIN32)
           if (HANDLE process = ::OpenProcess(SYNCHRONIZE, FALSE, owner); process != nullptr) {
             running = ::WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
             ::CloseHandle(process);
           }
+#else
+          // Linux client: signal 0 checks that the process exists (EPERM: it does, owned by someone else).
+          running = ::kill(static_cast<pid_t>(owner), 0) == 0 || errno == EPERM;
+#endif
         }
         if (!running) {
           leftovers.push_back(entry.path());
@@ -493,8 +505,30 @@ namespace moho
      */
     HANDLE sPrepareJob = nullptr;
     HANDLE sPrepareProcess = nullptr;
+#if !defined(_WIN32)
+    // Linux client: the hidden process's pid (sPrepareProcess stays null; IsPrepareProcessRunning answers).
+    pid_t sPreparePid = 0;
+#endif
     std::int32_t sPreparedTick = -1;
     bool sPrepareStartDue = false;
+
+    [[nodiscard]] bool HavePrepareProcess()
+    {
+#if defined(_WIN32)
+      return sPrepareProcess != nullptr;
+#else
+      return sPreparePid > 0;
+#endif
+    }
+
+    [[nodiscard]] bool IsPrepareProcessRunning()
+    {
+#if defined(_WIN32)
+      return sPrepareProcess != nullptr && ::WaitForSingleObject(sPrepareProcess, 0u) == WAIT_TIMEOUT;
+#else
+      return sPreparePid > 0 && ::waitpid(sPreparePid, nullptr, WNOHANG) == 0;
+#endif
+    }
 
     [[nodiscard]] std::filesystem::path PrepareDirectory()
     {
@@ -509,6 +543,7 @@ namespace moho
         const std::lock_guard<std::mutex> lock(sCompressLock);
         sPrepareScanning = false;
       }
+#if defined(_WIN32)
       if (sPrepareProcess != nullptr) {
         ::TerminateProcess(sPrepareProcess, 0u);
         ::WaitForSingleObject(sPrepareProcess, 3000u);
@@ -519,6 +554,13 @@ namespace moho
         ::CloseHandle(sPrepareJob);
         sPrepareJob = nullptr;
       }
+#else
+      if (sPreparePid > 0) {
+        ::kill(sPreparePid, SIGKILL);
+        (void)::waitpid(sPreparePid, nullptr, 0);
+        sPreparePid = 0;
+      }
+#endif
     }
 
     void StartKeyframePreparation()
@@ -527,13 +569,22 @@ namespace moho
       if (!replay_PrepareKeyframes || replay_KeyframeEvery <= 0) {
         return;
       }
-      wchar_t exePath[MAX_PATH] = {};
       fa::vector<fa::string> initArgs;
+#if defined(_WIN32)
+      wchar_t exePath[MAX_PATH] = {};
       if (::GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0 || !CFG_GetArgOption("/init", 1u, &initArgs) || initArgs.empty()) {
         gpg::Logf("Replay timeline: no keyframes prepared ahead: no /init to give the hidden process");
         return;
       }
       const std::filesystem::path self(exePath);
+#else
+      std::error_code selfError;
+      const std::filesystem::path self = std::filesystem::read_symlink("/proc/self/exe", selfError);
+      if (selfError || !CFG_GetArgOption("/init", 1u, &initArgs) || initArgs.empty()) {
+        gpg::Logf("Replay timeline: no keyframes prepared ahead: no /init to give the hidden process");
+        return;
+      }
+#endif
       std::error_code ignored;
       const std::filesystem::path directory = PrepareDirectory();
       std::filesystem::create_directories(directory, ignored);
@@ -547,6 +598,7 @@ namespace moho
         + "\" --keyframe-every " + every + " --keyframe-first " + first + " --keyframe-dir \"" + directory.string() + "\" --keyframe-prepare"
         + (replay_KeyframeQuietDisk ? " --keyframe-quiet" : "");
 
+#if defined(_WIN32)
       STARTUPINFOA startup{};
       startup.cb = sizeof(startup);
       PROCESS_INFORMATION process{};
@@ -569,6 +621,43 @@ namespace moho
       ::ResumeThread(process.hThread);
       ::CloseHandle(process.hThread);
       sPrepareProcess = process.hProcess;
+#else
+      // The same arguments as the Windows command line, as an argv; the child dies with this process
+      // (PR_SET_PDEATHSIG, Windows' kill-on-close job) and runs below normal priority (nice 10).
+      std::vector<std::string> arguments = {
+        self.string(), "/replaykeyframes", "--keep-client-data", "--label", "prepare", "--replay", sReplayPath,
+        "/init", initArgs[0].c_str(), "/nobugreport", "/nosound", "/log", (directory / "prepare.log").string(),
+        "--keyframe-every", every, "--keyframe-first", first, "--keyframe-dir", directory.string(), "--keyframe-prepare"};
+      if (replay_KeyframeQuietDisk) {
+        arguments.push_back("--keyframe-quiet");
+      }
+      std::vector<char*> argv;
+      for (std::string& argument : arguments) {
+        argv.push_back(argument.data());
+      }
+      argv.push_back(nullptr);
+      const std::string folder = self.parent_path().string();
+      const pid_t parent = ::getpid();
+      const pid_t child = ::fork();
+      if (child == 0) {
+        (void)::prctl(PR_SET_PDEATHSIG, SIGKILL);
+        if (::getppid() != parent) {
+          ::_exit(0);
+        }
+        (void)::nice(10);
+        if (::chdir(folder.c_str()) != 0) {
+          ::_exit(127);
+        }
+        ::execv(argv[0], argv.data());
+        ::_exit(127);
+      }
+      if (child < 0) {
+        gpg::Warnf("Replay timeline: no keyframes prepared ahead: can't start %s (%d)", self.string().c_str(), errno);
+        return;
+      }
+      sPreparePid = child;
+      (void)command;
+#endif
       {
         const std::lock_guard<std::mutex> lock(sCompressLock);
         sPrepareScanFrom = directory;
@@ -974,7 +1063,7 @@ namespace moho
       StartKeyframePreparation();
     }
     // Turned off while it runs: the CPU it uses comes back at once, and what it has written stays.
-    if (!replay_PrepareKeyframes && sPrepareProcess != nullptr) {
+    if (!replay_PrepareKeyframes && HavePrepareProcess()) {
       TakePreparedKeyframes();
       StopKeyframePreparation();
     }
@@ -1002,7 +1091,7 @@ namespace moho
       return;
     }
     // Or will be: a save stops the sim, which shows.
-    if (replay_KeyframeQuietDisk && sPrepareProcess != nullptr && ::WaitForSingleObject(sPrepareProcess, 0u) == WAIT_TIMEOUT) {
+    if (replay_KeyframeQuietDisk && IsPrepareProcessRunning()) {
       return;
     }
     if (HaveKeyframeNear(tick)) {

@@ -36,7 +36,9 @@
 #include "moho/animation/CAniSkel.h"
 #include "legacy/containers/Map.h"
 #include "legacy/containers/Set.h"
+#if defined(_WIN32) // the emitter editor, a wx tool window the Linux client does not have
 #include "moho/app/WEmitterWx.h"
+#endif
 #include "moho/app/WinApp.h"
 #include "moho/app/WxRuntimeTypes.h"
 #include "moho/audio/CUserSoundManager.h"
@@ -1186,6 +1188,11 @@ void moho::WIN_ToggleLogDialog()
     WINX_PrecreateLogWindow();
     dialog = sLogWindowTarget.dialog;
   }
+#if !defined(_WIN32)
+  if (dialog == nullptr) {
+    return; // the Linux client has no log window (platform/sdl/ToolWindowsLinux.cpp)
+  }
+#endif
 
   // `wxWindowBase::IsShown()` is inline, so 0x004F3C45 reads the flag directly:
   // `movzx edx, byte [ecx+0xCC] / shr dl, 1 / not dl / and edx, 1` -- bit 1 of
@@ -1219,6 +1226,11 @@ void moho::WIN_ShowLogDialog(const fa::vector<fa::string>& args)
     WINX_PrecreateLogWindow();
     dialog = sLogWindowTarget.dialog;
   }
+#if !defined(_WIN32)
+  if (dialog == nullptr) {
+    return; // the Linux client has no log window (platform/sdl/ToolWindowsLinux.cpp)
+  }
+#endif
 
   dialog->Show(showDialog);
 }
@@ -2166,6 +2178,11 @@ void moho::CON_mesh_Rebatch(const fa::vector<fa::string>& args)
  */
 void moho::EFX_CreateEmitterWindow(const fa::vector<fa::string>& args)
 {
+#if !defined(_WIN32)
+  // The emitter editor is a wx tool window, which the Linux client does not have.
+  (void)args;
+  gpg::Warnf("EFX_CreateEmitterWindow: the emitter editor is not available in the Linux client");
+#else
   // The editor is held through a weak pointer for the Show call; the
   // WeakPtr<WWinManagedFrame> Set emission is 0x0066A2A0.
   WeakPtr<WWinManagedFrame> editor;
@@ -2183,6 +2200,7 @@ void moho::EFX_CreateEmitterWindow(const fa::vector<fa::string>& args)
       : new WEmitterWx(nullptr, spawnPosition, nullptr)
   );
   editor.GetObjectPtr()->Show(true);
+#endif
 }
 
 

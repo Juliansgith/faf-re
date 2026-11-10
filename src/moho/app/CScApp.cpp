@@ -24,7 +24,9 @@
 #include "gpg/gal/Device.hpp"
 #include "gpg/gal/DeviceContext.hpp"
 #include "gpg/gal/Error.hpp"
+#if defined(_WIN32) // the Direct3D backends (the Linux client renders with Vulkan)
 #include "gpg/gal/backends/d3d12/DeviceD3D12.h"
+#endif
 #include "moho/audio/AudioEngine.h"
 #include "moho/lua/ScriptChunkCache.h"
 #include "moho/render/d3d/CD3DFont.h"
@@ -983,6 +985,10 @@ namespace
    */
   void PublishWindowedPresentationBounds(HWND const windowHandle)
   {
+#if !defined(_WIN32)
+    // Windows' fullscreen-presentation compatibility shim reads this; the Linux client has none
+    (void)windowHandle;
+#else
     HANDLE const mapping = ::CreateFileMappingW(
       INVALID_HANDLE_VALUE,
       nullptr,
@@ -1002,6 +1008,7 @@ namespace
 
     ::GetWindowRect(windowHandle, windowRect);
     (void)::UnmapViewOfFile(windowRect);
+#endif
   }
 
   /**
@@ -1013,6 +1020,11 @@ namespace
    */
   [[nodiscard]] BOOL AppendLuaDebuggerSystemMenu(HWND const windowHandle)
   {
+#if !defined(_WIN32)
+    // no system menu (and no Lua debugger window) on the Linux client
+    (void)windowHandle;
+    return FALSE;
+#else
     HMENU const systemMenu = ::GetSystemMenu(windowHandle, FALSE);
     if (systemMenu == nullptr) {
       return FALSE;
@@ -1021,6 +1033,7 @@ namespace
     (void)::AppendMenuW(systemMenu, MF_SEPARATOR, 0u, nullptr);
     (void)::AppendMenuW(systemMenu, MF_STRING, 1u, L"New Item");
     return ::AppendMenuW(systemMenu, MF_STRING, 2u, L"Open Lua Debugger");
+#endif
   }
 
   /**
@@ -1661,6 +1674,14 @@ namespace
     if (!moho::gAppRenderers.empty()) {
       return moho::gAppRenderers;
     }
+#if !defined(_WIN32)
+    // The Linux client has only Vulkan (src/platform/sdl/sources.cmake); a graphics_api preference
+    // shared with a Windows install, or a Direct3D switch, still means Vulkan here.
+    if (logChoice) {
+      gpg::Logf("renderer: Vulkan (the only renderer on this platform)");
+    }
+    return {DeviceApi::Vulkan};
+#endif
     const auto explicitApi = [](const DeviceApi api) {
       return (api == DeviceApi::Direct3D9) ? std::vector<DeviceApi>{api} : std::vector<DeviceApi>{api, DeviceApi::Direct3D9};
     };
@@ -1720,9 +1741,11 @@ namespace
     if (moho::CFG_GetArgOption("/nodeviceearly", 0, nullptr)) {
       ren_PrepareDeviceEarly = false;
     }
+#if defined(_WIN32) // Direct3D 12's early device; the Linux client renders with Vulkan
     if (ren_PrepareDeviceEarly && RendererAttemptOrder(false).front() == gpg::gal::DeviceApi::Direct3D12) {
       gpg::gal::D3D12_PrepareDeviceEarly();
     }
+#endif
   }
 
   /**
@@ -1750,10 +1773,17 @@ namespace
       title += labelArgs[0].c_str();
     }
 
+#if defined(_WIN32)
     const HWND windowHandle = reinterpret_cast<HWND>(static_cast<std::uintptr_t>(moho::sMainWindow->GetHandle()));
     if (const HWND topLevel = windowHandle != nullptr ? ::GetAncestor(windowHandle, GA_ROOT) : nullptr) {
       ::SetWindowTextA(topLevel, title.c_str());
     }
+#else
+    // the native Linux client: the frame's SDL window takes the title through wx-lite
+    if (wxWindow* const topLevel = moho::sMainWindow->GetTopLevelParent(); topLevel != nullptr) {
+      topLevel->SetTitle(wxString::FromUTF8(title.c_str()));
+    }
+#endif
   }
   /**
    * Part of CScApp::CreateDevice (0x008D0370): the heads and their sizes, from `/window`,
@@ -2045,7 +2075,9 @@ bool CScApp::CreateAppFrame(
     // it non-activatable (the agent minimizes it once the game runs).
     if (moho::CFG_GetArgOption("/agentbackground", 0, nullptr)) {
       const HWND hwnd = reinterpret_cast<HWND>(supcomFrame->GetHandle());
+#if defined(_WIN32)
       ::SetWindowLongW(hwnd, GWL_EXSTYLE, ::GetWindowLongW(hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
+#endif
       ::SetWindowPos(
         hwnd, HWND_BOTTOM, -20000, -20000, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER
       );

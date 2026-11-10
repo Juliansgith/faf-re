@@ -3705,6 +3705,24 @@ fa::string moho::FILE_Dir(const gpg::StrArg filename)
   if (filename == nullptr || filename[0] == '\0') {
     ThrowStartupFileError("Moho::FILE_Dir", "Null argument.");
   }
+#if !defined(_WIN32)
+  // The native Linux client: a system path that is absolute starts with '/', as a mounted (local) path
+  // does, so the binary's test below can't tell them apart; the callers (the save-game path) pass
+  // system paths only. No drives: an absolute path is its own, a relative one is under the working
+  // directory.
+  {
+    std::string normalized = filename;
+    std::replace(normalized.begin(), normalized.end(), '\\', '/');
+    if (normalized[0] != '/') {
+      char cwd[4096]{};
+      if (_getcwd(cwd, static_cast<int>(sizeof(cwd))) == nullptr) {
+        ThrowFileDirCrtError("_getcwd");
+      }
+      normalized = std::string(cwd) + "/" + normalized;
+    }
+    return FILE_DirPrefix(normalized.c_str());
+  }
+#endif
   if (filename[0] == '/' && filename[1] != ':' && filename[1] != '/') {
     ThrowStartupFileError("Moho::FILE_Dir", "System path expected, got local.");
   }
@@ -4523,7 +4541,15 @@ void moho::USER_SavePreferences()
   const std::wstring preferencesPathWide = gpg::STR_Utf8ToWide(preferencesPathText != nullptr ? preferencesPathText : "");
   const std::wstring temporaryPathWide = preferencesPathWide + L".new";
 
+#if defined(_WIN32)
   std::ofstream outputStream(temporaryPathWide.c_str());
+#else
+  // The path is Windows-style (the preference directory is joined with '\\'); the POSIX shim's file
+  // calls, MoveFileW below among them, read '\\' as '/', so the stream opens the same file.
+  std::string temporaryPathNarrow = gpg::STR_WideToUtf8(temporaryPathWide.c_str()).c_str();
+  std::replace(temporaryPathNarrow.begin(), temporaryPathNarrow.end(), '\\', '/');
+  std::ofstream outputStream(temporaryPathNarrow);
+#endif
   if (!outputStream.is_open()) {
     const std::wstring warningWide = std::wstring(L"Unable to open preference file: ") + temporaryPathWide;
     const fa::string warningUtf8 = gpg::STR_WideToUtf8(warningWide.c_str());

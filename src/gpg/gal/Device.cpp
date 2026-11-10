@@ -1,12 +1,17 @@
 #include "Device.hpp"
 #include "DeviceContext.hpp"
 #include "Error.hpp"
+#if defined(_WIN32)
 // d3d11.h pulls in d3d10_1.h, which refuses to follow d3d10.h: D3D11 first.
 #include "gpg/gal/backends/d3d11/DeviceD3D11.h"
 #include "gpg/gal/backends/d3d12/DeviceD3D12.h"
 #include "gpg/gal/backends/vulkan/DeviceVulkan.h"
 #include "gpg/gal/backends/d3d10/DeviceD3D10.hpp"
 #include "gpg/gal/backends/d3d9/DeviceD3D9.hpp"
+#else
+// The Linux client: Vulkan is the only backend (the Direct3D ones are not compiled there).
+#include "gpg/gal/backends/vulkan/DeviceVulkan.h"
+#endif
 #include "legacy/containers/AutoPtr.h"
 
 #include <Windows.h>
@@ -172,6 +177,7 @@ namespace gpg::gal
 
         switch (context->mDeviceType)
         {
+#if defined(_WIN32)
         case DeviceApi::Direct3D9:
         {
             DeviceD3D9* const device = new DeviceD3D9();
@@ -205,6 +211,7 @@ namespace gpg::gal
             }
             break;
         }
+#endif
         case DeviceApi::Vulkan:
         {
             // FAF addition, not in the shipped binary: as Direct3D 11 above.
@@ -221,6 +228,7 @@ namespace gpg::gal
             }
             break;
         }
+#if defined(_WIN32)
         case DeviceApi::Direct3D12:
         {
             // FAF addition, not in the shipped binary: as Direct3D 11 above.
@@ -237,7 +245,9 @@ namespace gpg::gal
             }
             break;
         }
+#endif
         default:
+            // The Linux client: any API but Vulkan lands here, and CScApp::CreateDevice moves on.
             ThrowDeviceContextError(135, "unknown API requested");
         }
 
@@ -260,6 +270,7 @@ namespace gpg::gal
 
         switch (device->GetDeviceContext()->mDeviceType)
         {
+#if defined(_WIN32)
         case DeviceApi::Direct3D9:
             return static_cast<DeviceD3D9*>(device)->SupportsVertexTextureFormat(textureFormat);
         case DeviceApi::Direct3D10:
@@ -268,6 +279,7 @@ namespace gpg::gal
             return static_cast<DeviceD3D11*>(device)->SupportsVertexTextureFormat(textureFormat);
         case DeviceApi::Direct3D12:
             return static_cast<DeviceD3D12*>(device)->SupportsVertexTextureFormat(textureFormat);
+#endif
         case DeviceApi::Vulkan:
             return static_cast<DeviceVulkan*>(device)->SupportsVertexTextureFormat(textureFormat);
         default:

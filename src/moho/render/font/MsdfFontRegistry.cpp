@@ -1,5 +1,9 @@
 #include "moho/render/font/MsdfFontRegistry.h"
 
+#if !defined(_WIN32)
+#include <cerrno>
+#include <csignal> // kill: is a process running
+#endif
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -64,6 +68,11 @@ namespace moho
       std::size_t mNamedFiles = 0u; // files whose names are in mByName
       std::size_t mModFonts = 0u;
       std::map<std::string, FontFile*> mByName;
+#if !defined(_WIN32)
+      // Linux client: face names with no file of their own (Tahoma, a misspelt Ariel), mapped to the file drawn
+      // in their place. Looked up after mByName, so a file registered later still answers to its own names.
+      std::map<std::string, FontFile*> mAliases;
+#endif
       std::deque<FontFile*> mQueue;
       std::thread mThread;
       bool mStop = false;
@@ -181,6 +190,10 @@ namespace moho
 
     [[nodiscard]] bool IsProcessRunning(const unsigned long processId)
     {
+#if !defined(_WIN32)
+      // Linux client: signal 0 checks that the process exists (EPERM: it does, owned by someone else).
+      return processId != 0u && (::kill(static_cast<pid_t>(processId), 0) == 0 || errno == EPERM);
+#else
       const HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
       if (process == nullptr) {
         return false;
@@ -189,6 +202,7 @@ namespace moho
       const bool running = ::GetExitCodeProcess(process, &exitCode) != FALSE && exitCode == STILL_ACTIVE;
       ::CloseHandle(process);
       return running;
+#endif
     }
 
     /**
@@ -327,6 +341,23 @@ namespace moho
       }
     }
 
+#if !defined(_WIN32)
+    /** With the registry's lock held: the file standing in for a face name no file answers to. */
+    [[nodiscard]] FontFile* FindAliasLocked(Registry& registry, const char* const faceName)
+    {
+      const auto alias = registry.mAliases.find(LowerName(faceName));
+      return alias != registry.mAliases.end() ? alias->second : nullptr;
+    }
+
+    /** With the registry's lock held: a face's file by its own names, then by alias. */
+    [[nodiscard]] FontFile* FindFileLocked(Registry& registry, const char* const faceName)
+    {
+      ReadNewFontNames(registry);
+      const auto known = registry.mByName.find(LowerName(faceName));
+      return known != registry.mByName.end() ? known->second : FindAliasLocked(registry, faceName);
+    }
+#endif
+
     /** With the registry's lock held. */
     void EnqueueLocked(Registry& registry, FontFile* const file)
     {
@@ -435,16 +466,74 @@ namespace moho
     const std::lock_guard<std::mutex> lock(registry.mMutex);
     ReadNewFontNames(registry);
     const auto known = registry.mByName.find(LowerName(faceName));
+#if defined(_WIN32)
     if (known == registry.mByName.end()) {
       return nullptr;
     }
     FontFile* const file = known->second;
+#else
+    FontFile* const file = known != registry.mByName.end() ? known->second : FindAliasLocked(registry, faceName);
+    if (file == nullptr) {
+      return nullptr;
+    }
+#endif
     if (file->mFromMod && !ren_ModFonts) {
       return nullptr;
     }
     EnqueueLocked(registry, file);
     return file->mAtlas;
   }
+
+#if !defined(_WIN32)
+  bool MSDF_FindFontFile(const char* const faceName, SMsdfFontFileView& out)
+  {
+    Registry& registry = GetRegistry();
+    const std::lock_guard<std::mutex> lock(registry.mMutex);
+    const FontFile* const file = FindFileLocked(registry, faceName);
+    if (file == nullptr || file->mFromMod || file->mBytes.empty()) {
+      return false;
+    }
+    out.mBytes = file->mBytes.data();
+    out.mByteCount = file->mBytes.size();
+    out.mPath = file->mPath;
+    return true;
+  }
+
+  void MSDF_AddFaceAlias(const char* const alias, const char* const path, const void* const fontBytes, const std::size_t byteCount)
+  {
+    const std::string shownPath = path != nullptr ? path : "";
+    Registry& registry = GetRegistry();
+    const std::lock_guard<std::mutex> lock(registry.mMutex);
+    FontFile* target = nullptr;
+    for (const std::unique_ptr<FontFile>& file : registry.mFiles) {
+      if (!file->mFromMod && file->mPath == shownPath) {
+        target = file.get();
+        break;
+      }
+    }
+    if (target == nullptr) {
+      auto file = std::make_unique<FontFile>();
+      file->mPath = shownPath;
+      const auto* const bytes = static_cast<const std::uint8_t*>(fontBytes);
+      file->mBytes.assign(bytes, bytes + byteCount);
+      target = file.get();
+      registry.mFiles.push_back(std::move(file));
+    }
+    registry.mAliases.emplace(LowerName(alias), target);
+  }
+
+  bool MSDF_AddFaceAliasToFace(const char* const alias, const char* const faceName)
+  {
+    Registry& registry = GetRegistry();
+    const std::lock_guard<std::mutex> lock(registry.mMutex);
+    FontFile* const file = FindFileLocked(registry, faceName);
+    if (file == nullptr || file->mFromMod) {
+      return false;
+    }
+    registry.mAliases.emplace(LowerName(alias), file);
+    return true;
+  }
+#endif
 
   void MSDF_ShutdownFontRegistry()
   {

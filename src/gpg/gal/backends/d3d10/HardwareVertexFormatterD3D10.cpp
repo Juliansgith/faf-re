@@ -1,4 +1,9 @@
+#if defined(_WIN32)
 #include "gpg/gal/backends/d3d10/D3D10Private.h"
+#else
+// The Linux client (Vulkan's formatter, without the Direct3D 10 SDK).
+#include "gpg/gal/backends/common/HardwareVertexFormatterPosix.h"
+#endif
 
 namespace gpg::gal
 {

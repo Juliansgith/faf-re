@@ -4,6 +4,11 @@
 
 #include <windows.h>
 
+#if !defined(_WIN32)
+#include <dlfcn.h>
+#include <execinfo.h>
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
@@ -45,6 +50,27 @@ namespace gpg::gal::backend
     /** The engine frames that made the lock, as module+offset, for `ln` in a debugger. */
     void LogCallers()
     {
+#if !defined(_WIN32)
+      // The Linux client: glibc's backtrace, each frame as object+offset (for addr2line).
+      void* frames[12]{};
+      const int captured = ::backtrace(frames, 12);
+      char line[512]{};
+      std::size_t used = 0U;
+      for (int index = 2; index < captured && used + 40U < sizeof(line); ++index) {
+        Dl_info info{};
+        const char* name = "?";
+        std::uintptr_t offset = reinterpret_cast<std::uintptr_t>(frames[index]);
+        if (::dladdr(frames[index], &info) != 0 && info.dli_fname != nullptr) {
+          name = info.dli_fname;
+          offset -= reinterpret_cast<std::uintptr_t>(info.dli_fbase);
+        }
+        const char* const base = std::strrchr(name, '/');
+        used += static_cast<std::size_t>(std::snprintf(
+          line + used, sizeof(line) - used, " %s+0x%zX", (base != nullptr) ? base + 1 : name, static_cast<std::size_t>(offset)
+        ));
+      }
+      gpg::Warnf("  called from%s", line);
+#else
       void* frames[10]{};
       const USHORT count = ::RtlCaptureStackBackTrace(2U, 10U, frames, nullptr);
       char line[512]{};
@@ -69,6 +95,7 @@ namespace gpg::gal::backend
         ));
       }
       gpg::Warnf("  called from%s", line);
+#endif
     }
 
     /** Logs (up to kMaxReports times a run) and breaks when asked to. */

@@ -26,4 +26,17 @@ namespace moho::sfd
     struct Impl;
     std::unique_ptr<Impl> impl;
   };
+
+#if !defined(_WIN32)
+  // Engine addition (faf-neural-ai, Linux client): what CMovieManager holds as its "DirectSound"
+  // device. It stands for SDL's audio subsystem with a playback device; each AudioSink is an SDL
+  // audio stream (48 kHz 16-bit stereo) on the default device. Null when there is no playback
+  // device: movies then play without sound, as with a failed DirectSoundCreate.
+  IDirectSound* OpenMovieAudioDevice();
+  void CloseMovieAudioDevice(IDirectSound* device);
+#endif
 } // namespace moho::sfd
+
+#if !defined(_WIN32) && !defined(DSBVOLUME_MIN)
+#define DSBVOLUME_MIN (-10000) // <dsound.h>: the attenuation (hundredths of a dB) of silence
+#endif

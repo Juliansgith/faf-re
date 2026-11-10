@@ -3,7 +3,9 @@
 #include "moho/lua/CScrLuaObjectFactory.h"
 
 #include <Windows.h>
+#if defined(_WIN32)
 #include <objbase.h>
+#endif
 
 #include <atomic>
 #include <cmath>
@@ -718,7 +720,9 @@ namespace moho
       // The XACT engine is a free-threaded ("Both") COM object, made here in the process's
       // multithreaded apartment. The thread ends without CoUninitialize, so its hold keeps the
       // apartment up after it, for as long as the engines are used.
+#if defined(_WIN32)
       (void)::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+#endif // the Linux client's engine (FAudio's FACT) is no COM object
       tBuildingSound = true;
       IUserSoundManager* manager = nullptr;
       try {

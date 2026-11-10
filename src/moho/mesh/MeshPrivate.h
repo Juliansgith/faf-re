@@ -23,7 +23,9 @@
 
 #include "boost/shared_ptr.h"
 #include "boost/weak_ptr.h"
+#if defined(_WIN32) // the Direct3D backends (the Linux client renders with Vulkan)
 #include "gpg/gal/backends/d3d9/TextureD3D9.hpp"
+#endif
 #include "moho/animation/CAniPose.h"
 #include "moho/animation/CAniSkel.h"
 #include "moho/app/UserWorkerPool.h"

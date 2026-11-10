@@ -1,5 +1,7 @@
 // FAF addition, not in the shipped binary: see VulkanSurface.h.
 
+#if defined(_WIN32)
+
 #include <windows.h>
 
 #define VK_USE_PLATFORM_WIN32_KHR
@@ -29,3 +31,110 @@ namespace gpg::gal::vulkan
     return (result == VK_SUCCESS) ? surface : VK_NULL_HANDLE;
   }
 } // namespace gpg::gal::vulkan
+
+#else // The Linux client: the window is the client's SDL_Window* (X11 or Wayland, SDL decides).
+
+#include "VulkanSurface.h"
+
+#include <cstring>
+
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
+
+#include "gpg/core/utils/Logging.h"
+
+namespace gpg::gal::vulkan
+{
+  namespace
+  {
+    /**
+     * SDL hands out the instance extensions only once its Vulkan library is loaded: a window
+     * created with SDL_WINDOW_VULKAN does that, and so does this call (reference counted, and
+     * the same libvulkan.so.1 that VulkanLoader opens, so both use one loader).
+     */
+    [[nodiscard]] bool SdlVulkanReady() noexcept
+    {
+      static const bool loaded = [] {
+        if (!SDL_Vulkan_LoadLibrary(nullptr)) {
+          gpg::Warnf("Vulkan: SDL could not load the Vulkan library: %s", SDL_GetError());
+          return false;
+        }
+        return true;
+      }();
+      return loaded;
+    }
+  } // namespace
+
+  const char* PlatformSurfaceExtension() noexcept
+  {
+    // The first window-system extension SDL asks for (VK_KHR_xlib_surface, VK_KHR_wayland_surface ...);
+    // PlatformInstanceExtensions() has all of them.
+    if (SdlVulkanReady()) {
+      Uint32 count = 0U;
+      const char* const* const names = SDL_Vulkan_GetInstanceExtensions(&count);
+      for (Uint32 index = 0U; names != nullptr && index < count; ++index) {
+        if (std::strcmp(names[index], VK_KHR_SURFACE_EXTENSION_NAME) != 0) {
+          return names[index];
+        }
+      }
+    }
+    return VK_KHR_SURFACE_EXTENSION_NAME;
+  }
+
+  std::vector<const char*> PlatformInstanceExtensions()
+  {
+    std::vector<const char*> extensions{VK_KHR_SURFACE_EXTENSION_NAME};
+    if (!SdlVulkanReady()) {
+      return extensions;
+    }
+    Uint32 count = 0U;
+    const char* const* const names = SDL_Vulkan_GetInstanceExtensions(&count);
+    if (names == nullptr) {
+      gpg::Warnf("Vulkan: SDL lists no instance extensions: %s", SDL_GetError());
+      return extensions;
+    }
+    for (Uint32 index = 0U; index < count; ++index) {
+      bool present = false;
+      for (const char* const existing : extensions) {
+        present = present || std::strcmp(existing, names[index]) == 0;
+      }
+      if (!present) {
+        extensions.push_back(names[index]); // SDL keeps the strings for the process's life
+      }
+    }
+    return extensions;
+  }
+
+  VkSurfaceKHR CreateWindowSurface(const VkInstance instance, void* const window, VkResult& result)
+  {
+    auto* const sdlWindow = static_cast<SDL_Window*>(window);
+    if (sdlWindow == nullptr || !SdlVulkanReady()) {
+      result = VK_ERROR_INITIALIZATION_FAILED;
+      return VK_NULL_HANDLE;
+    }
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    if (!SDL_Vulkan_CreateSurface(sdlWindow, instance, nullptr, &surface)) {
+      // SDL 3.4 turns a window created without SDL_WINDOW_VULKAN into a Vulkan one here, so this is
+      // the window system refusing (no X11/Wayland surface support in the driver, a lost display ...).
+      gpg::Warnf("Vulkan: SDL_Vulkan_CreateSurface failed: %s", SDL_GetError());
+      result = VK_ERROR_SURFACE_LOST_KHR;
+      return VK_NULL_HANDLE;
+    }
+    result = VK_SUCCESS;
+    return surface;
+  }
+
+  bool WindowPixelSize(void* const window, std::uint32_t& width, std::uint32_t& height) noexcept
+  {
+    int w = 0;
+    int h = 0;
+    if (window == nullptr || !SDL_GetWindowSizeInPixels(static_cast<SDL_Window*>(window), &w, &h) || w <= 0 || h <= 0) {
+      return false;
+    }
+    width = static_cast<std::uint32_t>(w);
+    height = static_cast<std::uint32_t>(h);
+    return true;
+  }
+} // namespace gpg::gal::vulkan
+
+#endif

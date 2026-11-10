@@ -6,12 +6,16 @@
 // ModernHlsl generates to DXIL (Direct3D 12) or SPIR-V (Vulkan).
 // dxcompiler.dll and dxil.dll (the DXIL signer) are loaded at run time from
 // the executable's directory, or from the directory in FAF_DXC_DIR; see
-// docs/RENDERER_BACKENDS.md.
+// docs/RENDERER_BACKENDS.md. The Linux client loads libdxcompiler.so and
+// libdxil.so from the same places, then from the library path.
 
 #include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
+#if !defined(_WIN32)
+#include <utility>
+#endif
 
 #include "ModernHlsl.h"
 
@@ -89,6 +93,21 @@ namespace gpg::gal::effects
 
     /** A digest of the loaded compiler, for shader cache keys. */
     [[nodiscard]] const std::string& Version() const noexcept;
+
+#if !defined(_WIN32)
+    /**
+     * The Linux client's stand-in for d3dcompiler_47's D3DPreprocess (which Windows' Vulkan and
+     * Direct3D 12 backends call): DXC's preprocessor (-P, -flegacy-macro-expansion for FXC's macro
+     * expansion order) on `source` with `defines` (name, value), no include handler (an #include
+     * fails, as with D3DPreprocess and a null ID3DInclude). The output has `#line N "name"` markers
+     * and keeps `#pragma` lines, as D3DPreprocess's does; blank-line runs may be folded into a
+     * `#line`. False with `messages` on failure; `messages` may hold warnings on success.
+     */
+    [[nodiscard]] bool Preprocess(
+      std::string_view source, std::string_view sourceName, const std::vector<std::pair<std::string, std::string>>& defines,
+      std::string& output, std::string& messages
+    ) const;
+#endif
 
   private:
     ShaderCompiler();

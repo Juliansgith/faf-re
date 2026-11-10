@@ -33,7 +33,9 @@ namespace gpg::gal
 {
   long DebugSaveSurfaceToFileA(const char* filePath, unsigned int fileFormat, void* sourceSurface);
 }
+#if defined(_WIN32) // the Direct3D backends (the Linux client renders with Vulkan)
 #include "gpg/gal/backends/d3d9/RenderTargetD3D9.hpp"
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -1140,9 +1142,13 @@ namespace moho
           return;
         }
         (void)std::snprintf(path, sizeof(path), "%s\\%s.bmp", dir, name);
+#if defined(_WIN32)
         const long hr = gpg::gal::DebugSaveSurfaceToFileA(
           path, 0U, static_cast<gpg::gal::RenderTargetD3D9*>(surface.get())->GetSurface()
         );
+#else
+        const long hr = -1; // a Direct3D 9 surface dump; the Linux client renders with Vulkan
+#endif
         gpg::Warnf("[SHADOWDUMP] %s -> %s hr=0x%08lX size=%d blur=%d valid=%d", name, path, hr, mShadowSize,
                    mShadowBlurEnabled ? 1 : 0, mShadowCameraValid ? 1 : 0);
       };

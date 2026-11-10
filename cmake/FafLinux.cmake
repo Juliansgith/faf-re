@@ -109,7 +109,7 @@ option(FAF_LINUX_CLIENT "Build the native Linux client (faf_client)" OFF)
 if(FAF_FETCH_DEPENDENCIES)
   set(FAF_DEPENDENCIES_ONLY monocypher zstd googletest)
   if(FAF_LINUX_CLIENT)
-    list(APPEND FAF_DEPENDENCIES_ONLY SDL3 FAudio DirectX-Headers dxc-linux freetype msdfgen DirectXTex)
+    list(APPEND FAF_DEPENDENCIES_ONLY SDL3 FAudio DirectX-Headers DirectXMath dxc-linux freetype msdfgen DirectXTex)
   endif()
   include(FafDependencies)
 endif()
@@ -494,6 +494,7 @@ if(FAF_LINUX_CLIENT)
   add_subdirectory("${PROJECT_SOURCE_DIR}/cmake/deps/faudio" "${CMAKE_BINARY_DIR}/deps/faudio")
   add_subdirectory("${PROJECT_SOURCE_DIR}/cmake/deps/freetype" "${CMAKE_BINARY_DIR}/deps/freetype")
   add_subdirectory("${PROJECT_SOURCE_DIR}/cmake/deps/msdfgen" "${CMAKE_BINARY_DIR}/deps/msdfgen")
+  add_subdirectory("${PROJECT_SOURCE_DIR}/cmake/deps/directxtex-linux" "${CMAKE_BINARY_DIR}/deps/directxtex-linux")
 
   include("${PROJECT_SOURCE_DIR}/src/platform/sdl/sources.cmake")
   set(_faf_client_files "")
@@ -515,13 +516,23 @@ if(FAF_LINUX_CLIENT)
   foreach(_src IN LISTS FAF_LINUX_CLIENT_SOURCES)
     list(APPEND _faf_client_files "${PROJECT_SOURCE_DIR}/src/${_src}")
   endforeach()
+  # The game has the replay player too, as on Windows (src/CMakeLists.txt): `/replaykeyframes`, the
+  # hidden process moho/sim/ReplayTimeline.cpp starts to prepare keyframes. Without it that process
+  # came up as a second game window. After the engine's sources, as there.
+  foreach(_src IN LISTS FAF_HEADLESS_SOURCES)
+    if(NOT _src STREQUAL "headless/HeadlessEntry.cpp")
+      list(APPEND _faf_client_files "${PROJECT_SOURCE_DIR}/src/${_src}")
+    endif()
+  endforeach()
+  list(APPEND _faf_client_files "${PROJECT_SOURCE_DIR}/src/headless/GameEntry.cpp")
   list(LENGTH _faf_client_files _faf_client_count)
   message(STATUS "faf_client: ${_faf_client_count} client translation units")
 
   add_library(faf_client_objects OBJECT ${_faf_client_files})
   target_link_libraries(faf_client_objects PUBLIC faf_sim_settings Wm3Headers zlib123 faf_zstd
     SDL3::SDL3-static FAudio-static faf_freetype faf_msdfgen)
-  target_compile_definitions(faf_client_objects PUBLIC FAF_LINUX_CLIENT=1)
+  # CLobby.cpp's std::unary_function (removed in C++17; libc++ keeps it behind this opt-in, as for boost.thread)
+  target_compile_definitions(faf_client_objects PUBLIC FAF_LINUX_CLIENT=1 _LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION=1)
   target_include_directories(faf_client_objects PUBLIC
     # wx's names for the UI's event handlers and the shell's windows, on SDL (src/platform/sdl/wx)
     "${PROJECT_SOURCE_DIR}/src/platform/sdl/wx-lite"
@@ -529,8 +540,20 @@ if(FAF_LINUX_CLIENT)
     "${FAF_DEPENDENCIES_DIR}/DirectX-Headers/include/directx"
     "${FAF_DEPENDENCIES_DIR}/dxc-linux/include")
 
-  add_executable(faf_client $<TARGET_OBJECTS:faf_client_objects>)
+  # The sim's objects first, then the client's: ELF runs the dynamic initializers in link order, and
+  # the client's registrations look up the sim's type descriptors (SBatchTextureDataFactory.cpp's
+  # prefetch type needs SBatchTextureDataTypeInfo.cpp's), which on Windows come earlier in
+  # src/sources.cmake. Linking the OBJECT libraries instead would put faf_sim's objects last.
+  add_executable(faf_client $<TARGET_OBJECTS:faf_sim> $<TARGET_OBJECTS:faf_client_objects>)
+  add_dependencies(faf_client faf_sim faf_client_objects)
   set_target_properties(faf_client PROPERTIES OUTPUT_NAME "faf")
-  target_link_libraries(faf_client PRIVATE faf_sim faf_client_objects)
-  target_link_options(faf_client PRIVATE -Wl,--error-limit=0)
+  # faf_sim's and faf_client_objects' usage requirements without their objects.
+  target_link_libraries(faf_client PRIVATE faf_sim_settings Wm3Headers zlib123 faf_monocypher faf_zstd
+    SDL3::SDL3-static FAudio-static faf_freetype faf_msdfgen faf_directxtex_linux)
+  if(TARGET faf_netchannel)
+    target_link_libraries(faf_client PRIVATE faf_netchannel)
+  endif()
+  # --no-dependent-libraries: the MSVC `#pragma comment(lib, ...)` lines of the shared sources (psapi.lib...)
+  # name Windows import libraries, which lld would otherwise go looking for.
+  target_link_options(faf_client PRIVATE -Wl,--error-limit=0 -Wl,--no-dependent-libraries)
 endif()

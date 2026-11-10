@@ -4,8 +4,10 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#if defined(_WIN32)
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#endif
 #include <Windows.h>
 
 #include <array>
@@ -20,9 +22,14 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
+#if defined(_WIN32)
 #include <shellapi.h>
+#else
+#include <chrono>
+#endif
 
 #include "headless/HeadlessMain.h"
 #include "CScApp.h"
@@ -43,8 +50,14 @@
 // crashtest lua_table_corrupt builds a raw VM; lua_open is recovered in
 // lua/LuaObject.cpp inside `extern "C"`.
 extern "C" lua_State* lua_open();
+#if defined(_WIN32)
 extern "C" int __cdecl _purecall();
+#else
+// Engine addition (faf-neural-ai, the native Linux client): the Itanium C++ ABI's pure-call handler.
+extern "C" void __cxa_pure_virtual();
+#endif
 
+#if defined(_WIN32) // the MSVC CRT's initializer order; the Linux client's startup has no such hook
 namespace
 {
   /**
@@ -92,6 +105,7 @@ namespace
 #pragma section(".CRT$XIB", read)
 extern "C" __declspec(allocate(".CRT$XIB")) GPG_STATIC_INIT_USED int(__cdecl* const gQueryStartupInfoBeforeInitializers)() =
   &QueryStartupInfoBeforeInitializers;
+#endif // _WIN32
 
 namespace
 {
@@ -105,9 +119,11 @@ namespace
   bool sInMemHook = false;
   fa::hash_set<std::uintptr_t> sMemHookAddr;
 
+#if defined(_WIN32)
   STICKYKEYS sSavedStickyKeys{};
   TOGGLEKEYS sSavedToggleKeys{};
   FILTERKEYS sSavedFilterKeys{};
+#endif
 
   /**
    * Address: 0x008D2140 (FUN_008D2140, func_CleanupAllocLoc)
@@ -241,12 +257,14 @@ namespace
 
   [[noreturn]] void RunCrashTest(const char* kind); // defined below, beside its docs
 
+#if defined(_WIN32)
   DWORD WINAPI DelayedCrashThread(LPVOID)
   {
     ::Sleep(gDelayedCrashRequest.seconds * 1000ul);
     RunCrashTest(gDelayedCrashRequest.kind);
     return 0;
   }
+#endif
 
   void SC_FafCrashTest(const fa::vector<fa::string>& args)
   {
@@ -348,7 +366,11 @@ namespace
       // Directly into the CRT purecall handler (the same one CrashHooks
       // installs its logger under); a constructed-dangling-vtable route is
       // UB-shaped and less deterministic than the handler itself.
+#if defined(_WIN32)
       ::_purecall();
+#else
+      ::__cxa_pure_virtual();
+#endif
     } else if (kind != nullptr && std::strcmp(kind, "watch") == 0) {
       // End-to-end hardware-watchpoint verification.
       gpg::diag::InstallProbeWatchHandler();
@@ -381,6 +403,7 @@ namespace
     std::abort();
   }
 
+#if defined(_WIN32) // Windows' accessibility keys and Media Center: nothing to do on Linux
   /**
    * Address: 0x008D4320 (FUN_008D4320)
    *
@@ -447,6 +470,7 @@ namespace
     const HINSTANCE result = ::ShellExecuteW(nullptr, L"open", ehomePath.data(), nullptr, nullptr, SW_SHOWNORMAL);
     return reinterpret_cast<std::uintptr_t>(result) > 32U;
   }
+#endif // _WIN32
 
 
 
@@ -464,12 +488,21 @@ namespace
  */
 int (*gGameReplayPlayerMain)(int argc, char** argv) = nullptr;
 
+#if defined(_WIN32)
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
   (void)hInstance;
   (void)hPrevInstance;
   (void)lpCmdLine;
   (void)nShowCmd;
+#else
+// Engine addition (faf-neural-ai): the native Linux client's entry, WinMain's body. The command line
+// reaches CFG_GetArgOption through __argc / __argv (platform/posix/Win32Shim.cpp), as the CRT's did.
+int main(int argc, char** argv)
+{
+  (void)argc;
+  (void)argv;
+#endif
 
   // Engine addition (replay timeline): the viewer's hidden process, this same exe with no window or device.
   if (gGameReplayPlayerMain != nullptr && moho::CFG_GetArgOption("/replaykeyframes", 0, nullptr)) {
@@ -506,11 +539,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     if (delaySeconds != 0) {
       gDelayedCrashRequest.seconds = delaySeconds;
+#if defined(_WIN32)
       (void)::strncpy_s(gDelayedCrashRequest.kind, kind, _TRUNCATE);
       HANDLE thread = ::CreateThread(nullptr, 0, &DelayedCrashThread, nullptr, 0, nullptr);
       if (thread != nullptr) {
         (void)::CloseHandle(thread); // fire-and-forget by design
       }
+#else
+      (void)::strncpy_s(gDelayedCrashRequest.kind, sizeof(gDelayedCrashRequest.kind), kind,
+                        sizeof(gDelayedCrashRequest.kind) - 1);
+      std::thread([] {
+        std::this_thread::sleep_for(std::chrono::seconds(gDelayedCrashRequest.seconds));
+        RunCrashTest(gDelayedCrashRequest.kind);
+      }).detach(); // fire-and-forget by design
+#endif
     } else {
       RunCrashTest(kind);
     }
@@ -550,7 +592,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
   }
 
   if (moho::CFG_GetArgOption("/waitfordebugger", 0, nullptr)) {
+#if defined(_WIN32)
     ::MessageBoxW(nullptr, L"Attach the debugger and click OK.", L"Waiting", 0);
+#else
+    std::fprintf(stderr, "Waiting for a debugger (pid %d)...\n", static_cast<int>(::GetCurrentProcessId()));
+    while (::IsDebuggerPresent() == FALSE) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+#endif
   }
 
   if (moho::CFG_GetArgOption("/aqtime", 0, nullptr)) {
@@ -585,10 +634,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     moho::USER_PurgeAppCacheDir();
   }
 
+#if defined(_WIN32)
   (void)::SystemParametersInfoW(SPI_GETSTICKYKEYS, sizeof(STICKYKEYS), &sSavedStickyKeys, 0);
   (void)::SystemParametersInfoW(SPI_GETTOGGLEKEYS, sizeof(TOGGLEKEYS), &sSavedToggleKeys, 0);
   (void)::SystemParametersInfoW(SPI_GETFILTERKEYS, sizeof(FILTERKEYS), &sSavedFilterKeys, 0);
   ConfigureAccessibilitySystemParameters(false);
+#endif
 
   int exitCode = 0;
   try {
@@ -610,7 +661,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     gpg::Die("Unhandled exception:\n\n%s", ex.what());
   }
 
+#if defined(_WIN32)
   ConfigureAccessibilitySystemParameters(true);
   (void)TryLaunchMediaCenterIfRequested();
+#endif
   return exitCode;
 }

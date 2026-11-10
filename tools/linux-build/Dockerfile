@@ -19,4 +19,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libegl-dev libgl-dev libdrm-dev libgbm-dev libpulse-dev libpipewire-0.3-dev libasound2-dev \
       libdbus-1-dev libudev-dev libvulkan-dev libvulkan1 mesa-vulkan-drivers xvfb xauth \
     && rm -rf /var/lib/apt/lists/*
+# For running the client in the container (src/moho/render/font/FontFaceLinux.cpp's stand-ins for the
+# Windows faces the game doesn't ship; the game's own fonts come from its fonts/ folder), xwd for
+# screenshots of the virtual display, xdotool for input, gdb for stacks, and the Vulkan validation
+# layer (/vulkandebug).
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-liberation fonts-dejavu-core x11-apps gdb \
+      vulkan-validationlayers xdotool \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /work

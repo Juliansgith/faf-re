@@ -710,6 +710,9 @@ namespace gpg::gal
     if (pipeline == VK_NULL_HANDLE) {
       return;
     }
+    if (mTracing) {
+      Trace("GpuDraw %s%s", program->mDesc.name, call.indirectArgs != nullptr ? " (indirect)" : "");
+    }
     BeginRendering();
 
     Vk().vkCmdBindPipeline(mCommands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -762,6 +765,9 @@ namespace gpg::gal
     }
     const std::lock_guard<std::recursive_mutex> lock(mMutex);
     const VkDescriptorSet set = PrepareGpuBindings(dispatch.bindings, program->mDesc.sampler, true);
+    if (mTracing) {
+      Trace("GpuDispatch %s %ux%ux%u", program->mDesc.name, dispatch.groupsX, dispatch.groupsY, dispatch.groupsZ);
+    }
     // Compute runs outside a rendering scope; earlier writes (uploads, draws) come first.
     EndRendering();
     GpuWriteBarrier();

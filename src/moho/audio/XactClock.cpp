@@ -2,6 +2,17 @@
 
 #include "moho/audio/XactClock.h"
 
+#if !defined(_WIN32)
+// Engine addition (faf-neural-ai, Linux client): the engine is FAudio's FACT, linked in, which
+// times itself with SDL's clock from process start; there is no engine DLL and no uptime limit to
+// work around, so the clock stays as it is.
+#include "moho/audio/AudioEngine.h"
+
+namespace moho
+{
+  void SND_InstallXactClock(const IXACTEngine&) {}
+} // namespace moho
+#else
 #include <array>
 #include <cstdlib>
 #include <cstring>
@@ -207,3 +218,4 @@ namespace moho
     );
   }
 } // namespace moho
+#endif

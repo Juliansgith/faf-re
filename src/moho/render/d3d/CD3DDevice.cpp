@@ -26,7 +26,9 @@
 #include "gpg/gal/Head.hpp"
 #include "gpg/gal/OutputContext.hpp"
 #include "gpg/gal/RenderTargetContext.hpp"
+#if defined(_WIN32) // the Direct3D backends (the Linux client renders with Vulkan)
 #include "gpg/gal/backends/d3d9/DeviceD3D9.hpp"
+#endif
 #include "gpg/gal/Effect.hpp"
 #include "gpg/gal/EffectTechnique.hpp"
 #include "moho/console/CConCommand.h"
@@ -440,10 +442,12 @@ namespace moho
       const moho::SD3DDeviceEvent deviceInitEvent{0u, false, {0u, 0u, 0u}};
       BroadcastEvent(deviceInitEvent);
 
+#if defined(_WIN32) // the second monitor's window; the Linux client has one window
       for (int headIndex = 1; headIndex < headCount; ++headIndex) {
         const gpg::gal::Head& head = context->GetHead(static_cast<unsigned int>(headIndex));
         ::ShowWindow(static_cast<HWND>(head.mWindow), SW_SHOWNORMAL);
       }
+#endif
 
       if (mCursorContext.texture_.get() != nullptr && device != nullptr) {
         device->SetCursor(&mCursorContext);
@@ -1869,11 +1873,13 @@ namespace moho
         continue;
       }
 
-      DWORD loadedFontCount = 0;
       const DWORD byteSize = static_cast<DWORD>(fontBytes.mEnd - fontBytes.mBegin);
+#if defined(_WIN32) // GDI's copy; the Linux client draws every font from FreeType/MSDF
+      DWORD loadedFontCount = 0;
       if (::AddFontMemResourceEx(fontBytes.mBegin, byteSize, nullptr, &loadedFontCount) == 0) {
         gpg::Warnf("D3D_InitFonts: Error loading font %s", mountedPath.c_str());
       }
+#endif
       // FAF addition: the same file can also draw through an MSDF atlas (issue #306).
       MSDF_RegisterFontFile(fontFile.c_str(), fontBytes.mBegin, byteSize);
     }

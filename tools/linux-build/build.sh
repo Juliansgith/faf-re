@@ -32,11 +32,19 @@ if [ "${FAF_LINUX_BUILD_INNER:-0}" = "1" ]; then
   cmake --build /work/build --target "${targets[@]}" -- -k 0
   rm -rf /work/out/*
   for target in "${targets[@]}"; do
-    found="$(find /work/build -maxdepth 3 -type f -name "$target" -perm -u+x | head -1)"
+    name="$target"
+    if [ "$target" = "faf_client" ]; then
+      name="faf" # its OUTPUT_NAME (cmake/FafLinux.cmake)
+    fi
+    found="$(find /work/build -maxdepth 3 -type f -name "$name" -perm -u+x | head -1)"
     if [ -n "$found" ]; then
       cp "$found" /work/out/
     fi
   done
+  # The client (output name faf) loads DXC from its own folder (gpg/gal/effects/ShaderCompiler.cpp).
+  if [ -f /work/out/faf ]; then
+    cp /work/src/dependencies/dxc-linux/lib/libdxcompiler.so /work/src/dependencies/dxc-linux/lib/libdxil.so /work/out/
+  fi
   cp -r /work/out/. /src-out/
   exit 0
 fi

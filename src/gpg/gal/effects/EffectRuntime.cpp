@@ -3,7 +3,12 @@
 #include "EffectRuntime.h"
 
 #include <windows.h>
+#if defined(_WIN32)
 #include <shlobj.h>
+#else
+#include <filesystem>
+#include <system_error>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -100,9 +105,16 @@ namespace gpg::gal::effects
       const bool ok = ::WriteFile(file, &header, sizeof(header), &written, nullptr) && written == sizeof(header) &&
         ::WriteFile(file, code.data(), static_cast<DWORD>(code.size()), &written, nullptr) && written == code.size();
       ::CloseHandle(file);
+#if defined(_WIN32)
       if (!ok || !::MoveFileExA(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
         ::DeleteFileA(temporary.c_str());
       }
+#else
+      // rename(2) replaces the target in one step, as MOVEFILE_REPLACE_EXISTING does.
+      if (!ok || std::rename(temporary.c_str(), path.c_str()) != 0) {
+        ::DeleteFileA(temporary.c_str());
+      }
+#endif
     }
 
     /**
@@ -183,7 +195,37 @@ namespace gpg::gal::effects
 
   const std::string& ShaderCacheDirectory()
   {
+#if defined(_WIN32)
     return gpg::LocalCacheDirectory();
+#else
+    // The Linux client: FAF_SHADER_CACHE_DIR, else the XDG cache directory ($XDG_CACHE_HOME, or
+    // ~/.cache) under FAForever/ShaderCache, with a trailing '/'; empty when it can't be created.
+    static const std::string directory = [] {
+      std::filesystem::path folder;
+      if (const char* const configured = std::getenv("FAF_SHADER_CACHE_DIR"); configured != nullptr && configured[0] != '\0') {
+        folder = configured;
+      } else if (const char* const cache = std::getenv("XDG_CACHE_HOME"); cache != nullptr && cache[0] == '/') {
+        folder = std::filesystem::path(cache) / "FAForever" / "ShaderCache";
+      } else if (const char* const home = std::getenv("HOME"); home != nullptr && home[0] != '\0') {
+        folder = std::filesystem::path(home) / ".cache" / "FAForever" / "ShaderCache";
+      }
+      if (folder.empty()) {
+        return std::string();
+      }
+      std::error_code error;
+      std::filesystem::create_directories(folder, error);
+      std::string path = folder.string();
+      if (error) {
+        gpg::Warnf("cannot create the shader cache directory %s (%s); nothing is cached", path.c_str(), error.message().c_str());
+        return std::string();
+      }
+      if (path.back() != '/') {
+        path += '/';
+      }
+      return path;
+    }();
+    return directory;
+#endif
   }
 
   EffectProgram::EffectProgram(

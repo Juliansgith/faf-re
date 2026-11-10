@@ -26,7 +26,9 @@
 #include "gpg/gal/Device.hpp"
 #include "gpg/gal/DeviceContext.hpp"
 #include "gpg/gal/RenderProfiler.h"
+#if defined(_WIN32) // the Direct3D backends (the Linux client renders with Vulkan)
 #include "gpg/gal/backends/d3d9/DeviceD3D9.hpp"
+#endif
 #include "moho/console/CConCommand.h"
 #include "moho/effects/rendering/SEfxCurve.h"
 #include "moho/mesh/Mesh.h"
