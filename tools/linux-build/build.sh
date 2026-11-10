@@ -23,7 +23,8 @@ fi
 if [ "${FAF_LINUX_BUILD_INNER:-0}" = "1" ]; then
   mkdir -p /work/src /work/out
   # The checkout's .git is a worktree link to a host path; the build only needs the files.
-  rsync -a --delete --exclude '/.git' --exclude '/build/' --exclude '/out/' /src/ /work/src/
+  # Dependencies the configure step downloads here (the Linux client's) are kept between builds.
+  rsync -a --delete --filter 'P /dependencies/**' --exclude '/.git' --exclude '/build/' --exclude '/out/' /src/ /work/src/
   cd /work/src
   # shellcheck disable=SC2086 # cmake_args is a list of -D settings
   cmake --preset "$preset" -B /work/build $cmake_args >/work/configure.log 2>&1 \
@@ -50,7 +51,7 @@ mkdir -p "$root/build/linux-x64"
 # MSYS (Git Bash) would rewrite the container paths below into Windows ones.
 MSYS_NO_PATHCONV=1 docker run --rm \
   -e FAF_LINUX_BUILD_INNER=1 -e FAF_LINUX_PRESET="$preset" -e FAF_LINUX_CMAKE_ARGS="$cmake_args" \
-  -v faf-linux-work:/work \
+  -v "${FAF_LINUX_VOLUME:-faf-linux-work}:/work" \
   -v "$root:/src:ro" \
   -v "$root/build/linux-x64:/src-out" \
   "$image" bash /src/tools/linux-build/build.sh "${targets[@]}"

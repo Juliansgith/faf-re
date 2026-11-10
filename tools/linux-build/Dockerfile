@@ -10,4 +10,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       clang-18 lld-18 llvm-18 libc++-18-dev libc++abi-18-dev libunwind-18-dev libc6-dev \
       cmake ninja-build python3 binutils git rsync ca-certificates curl xz-utils \
     && rm -rf /var/lib/apt/lists/*
+# The Linux client (SDL3, FAudio, Vulkan): the window-system and audio headers SDL compiles its
+# backends against (it loads the libraries themselves at run time), and the Vulkan loader. The
+# simulation never sees any of these, so they leave its parity alone.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      pkg-config libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev \
+      libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
+      libegl-dev libgl-dev libdrm-dev libgbm-dev libpulse-dev libpipewire-0.3-dev libasound2-dev \
+      libdbus-1-dev libudev-dev libvulkan-dev libvulkan1 mesa-vulkan-drivers xvfb xauth \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /work

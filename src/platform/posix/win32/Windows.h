@@ -724,6 +724,39 @@ BOOL GetNumaNodeProcessorMask(UCHAR node, ULONGLONG* processorMask);
 int _vsnprintf(char* buffer, std::size_t count, const char* format, va_list arguments) noexcept;
 int _vsnwprintf(wchar_t* buffer, std::size_t count, const wchar_t* format, va_list arguments) noexcept;
 int _snprintf(char* buffer, std::size_t count, const char* format, ...) noexcept;
+
+// --- Engine addition (faf-neural-ai): what the native Linux client's shared code still calls --------
+// Process, string and environment helpers (Win32Shim.cpp).
+using errno_t = int;
+using USHORT = unsigned short;
+using COLORREF = DWORD;
+ULONGLONG GetTickCount64();
+errno_t getenv_s(std::size_t* requiredSize, char* buffer, std::size_t bufferSize, const char* name);
+int _wcsicmp(const wchar_t* left, const wchar_t* right) noexcept;
+DWORD GetModuleFileNameA(HMODULE module, char* fileName, DWORD size);
+char* GetCommandLineA();
+BOOL IsDebuggerPresent();
+void DebugBreak();
+// Windows, cursors and the screen: the handle is the client's SDL_Window* (platform/sdl/SdlWin32.cpp, in
+// the Linux client only; the simulation's programs never call these).
+using HCURSOR = void*;
+using HICON = void*;
+using HMONITOR = void*;
+BOOL GetWindowRect(HWND window, RECT* rect);
+BOOL GetClientRect(HWND window, RECT* rect);
+BOOL SetCursorPos(int x, int y);
+BOOL GetCursorPos(POINT* point);
+BOOL ClientToScreen(HWND window, POINT* point);
+BOOL ScreenToClient(HWND window, POINT* point);
+BOOL SetWindowPos(HWND window, HWND insertAfter, int x, int y, int width, int height, UINT flags);
+#define HWND_TOP (reinterpret_cast<HWND>(0))
+#define HWND_TOPMOST (reinterpret_cast<HWND>(-1))
+#define HWND_NOTOPMOST (reinterpret_cast<HWND>(-2))
+#define SWP_NOSIZE 0x0001u
+#define SWP_NOMOVE 0x0002u
+#define SWP_NOZORDER 0x0004u
+#define SWP_NOACTIVATE 0x0010u
+#define SWP_SHOWWINDOW 0x0040u
 inline std::tm* _localtime64(const __time64_t* const time) noexcept
 {
   const std::time_t value = static_cast<std::time_t>(*time);

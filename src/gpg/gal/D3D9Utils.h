@@ -10,9 +10,8 @@
 // On Windows the real <d3d9types.h> declares them - at global scope, where the
 // SDK's own headers (<d3d9.h>, <d3dx9.h>) expect to find them.
 //
-#if defined(_WIN32)
+// Elsewhere: platform/posix/win32/d3d9types.h, the types the gal interface names (D3DVIEWPORT9, ...).
 #include <d3d9types.h>
-#endif
 
 namespace gpg::gal
 {

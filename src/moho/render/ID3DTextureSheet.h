@@ -7,23 +7,9 @@
 #include "Wm3Vector2.h"
 #include "Wm3Vector3.h"
 
-#if defined(_WIN32)
+// On Linux: platform/posix/win32/d3d9types.h (RECT, D3DLOCKED_RECT and the other Direct3D 9 types the
+// renderer's interface names).
 #include <d3d9types.h>
-#else
-struct RECT
-{
-  long left;
-  long top;
-  long right;
-  long bottom;
-};
-
-struct D3DLOCKED_RECT
-{
-  int Pitch;
-  void* pBits;
-};
-#endif
 
 namespace gpg
 {

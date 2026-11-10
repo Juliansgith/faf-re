@@ -43,6 +43,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <csignal>
+#include <ctime>
+#include <cwctype>
+
 namespace
 {
   thread_local DWORD tLastError = 0;
@@ -2329,6 +2333,99 @@ extern "C" void* __RTtypeid(void* const object)
   }
   void* const* const vtable = *static_cast<void* const* const*>(object);
   return vtable[-1];
+}
+
+// --- Engine addition (faf-neural-ai): what the native Linux client's shared code calls ---------------
+
+ULONGLONG GetTickCount64()
+{
+  timespec now{};
+  ::clock_gettime(CLOCK_MONOTONIC, &now);
+  return static_cast<ULONGLONG>(now.tv_sec) * 1000u + static_cast<ULONGLONG>(now.tv_nsec) / 1000000u;
+}
+
+errno_t getenv_s(std::size_t* const requiredSize, char* const buffer, const std::size_t bufferSize, const char* const name)
+{
+  const char* const value = name != nullptr ? std::getenv(name) : nullptr;
+  const std::size_t needed = value != nullptr ? std::strlen(value) + 1 : 0;
+  if (requiredSize != nullptr) {
+    *requiredSize = needed;
+  }
+  if (value == nullptr) {
+    if (buffer != nullptr && bufferSize > 0) {
+      buffer[0] = '\0';
+    }
+    return 0;
+  }
+  if (buffer == nullptr || bufferSize == 0) {
+    return 0; // the size query
+  }
+  if (bufferSize < needed) {
+    buffer[0] = '\0';
+    return ERANGE;
+  }
+  std::memcpy(buffer, value, needed);
+  return 0;
+}
+
+int _wcsicmp(const wchar_t* left, const wchar_t* right) noexcept
+{
+  for (;; ++left, ++right) {
+    const wint_t a = std::towlower(static_cast<wint_t>(*left));
+    const wint_t b = std::towlower(static_cast<wint_t>(*right));
+    if (a != b || a == 0) {
+      return static_cast<int>(a) - static_cast<int>(b);
+    }
+  }
+}
+
+DWORD GetModuleFileNameA(HMODULE, char* const fileName, const DWORD size)
+{
+  if (fileName == nullptr || size == 0) {
+    return 0;
+  }
+  const ssize_t length = ::readlink("/proc/self/exe", fileName, size - 1);
+  if (length <= 0) {
+    fileName[0] = '\0';
+    return 0;
+  }
+  fileName[length] = '\0';
+  return static_cast<DWORD>(length);
+}
+
+char* GetCommandLineA()
+{
+  // The command line as one string, arguments separated by spaces (quoted when they hold one).
+  static const std::string commandLine = [] {
+    std::string out;
+    std::ifstream file("/proc/self/cmdline", std::ios::binary);
+    std::string argument;
+    while (std::getline(file, argument, '\0')) {
+      if (!out.empty()) {
+        out += ' ';
+      }
+      out += argument.find(' ') != std::string::npos ? "\"" + argument + "\"" : argument;
+    }
+    return out;
+  }();
+  return const_cast<char*>(commandLine.c_str());
+}
+
+BOOL IsDebuggerPresent()
+{
+  std::ifstream status("/proc/self/status");
+  std::string line;
+  while (std::getline(status, line)) {
+    if (line.rfind("TracerPid:", 0) == 0) {
+      return std::atoi(line.c_str() + 10) != 0 ? TRUE : FALSE;
+    }
+  }
+  return FALSE;
+}
+
+void DebugBreak()
+{
+  (void)std::raise(SIGTRAP);
 }
 
 #endif // !defined(_WIN32)

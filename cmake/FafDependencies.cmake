@@ -267,6 +267,33 @@ set(_faf_download_imgui
     "imgui-1.92.4-docking"
     "imgui-v1.92.4-docking.tar.gz")
 
+# --- The native Linux client (faf-neural-ai) -------------------------------------------
+# SDL 3.4.18 (zlib): the Linux client's window, events, Vulkan surface and audio device
+# (src/platform/sdl). The release's source archive; cmake/deps/sdl3 builds it statically.
+set(_faf_download_SDL3
+    "https://github.com/libsdl-org/SDL/releases/download/release-3.4.18/SDL3-3.4.18.tar.gz"
+    "9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3"
+    "SDL3-3.4.18")
+# FAudio 26.10 (zlib): XAudio2 and XACT3 (its FACT API) for the Linux client's sound
+# (moho/audio). The tag's source archive; cmake/deps/faudio builds it statically on SDL3.
+set(_faf_download_FAudio
+    "https://github.com/FNA-XNA/FAudio/archive/refs/tags/26.10.tar.gz"
+    "c508f297ec8d065b456b2d9d74bab89ffc84ac3afbcb428bd54e40f09f8b901e"
+    "FAudio-26.10"
+    "FAudio-26.10.tar.gz")
+# DirectX-Headers v1.619.5 (MIT): the DXGI and Direct3D 12 headers for Linux (dxgiformat.h and the
+# rest the Vulkan backend's shared code names), as WSL and Mesa use them. The tag's source archive.
+set(_faf_download_DirectX-Headers
+    "https://github.com/microsoft/DirectX-Headers/archive/refs/tags/v1.619.5.tar.gz"
+    "24a0b7d8079a2dbbc90753c0d8bc812040d052acce2302e69a97c5d873b313b8"
+    "DirectX-Headers-1.619.5"
+    "DirectX-Headers-1.619.5.tar.gz")
+# DXC v1.9.2609 for Linux (LLVM/MIT): libdxcompiler.so and libdxil.so, the same release as the
+# Windows build's dependencies/dxc, so both compile the effects with the same compiler.
+set(_faf_download_dxc-linux
+    "https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/linux_dxc_2026_09_28.x86_x64.tar.gz"
+    "96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1")
+
 function(_faf_download_tree name)
   list(GET _faf_download_${name} 0 _url)
   list(GET _faf_download_${name} 1 _sha256)
@@ -447,6 +474,13 @@ if(NOT FAF_ZSTD_DIR)
 endif()
 if(NOT DEFINED ENV{FAF_GTEST_DIR} AND NOT (FAF_GTEST_DIR AND EXISTS "${FAF_GTEST_DIR}/CMakeLists.txt"))
   faf_dependency_download(googletest)
+endif()
+# The native Linux client's (FAF_LINUX_CLIENT); a Windows build never fetches them.
+if(FAF_LINUX OR (CMAKE_SCRIPT_MODE_FILE AND FAF_DEPENDENCIES_ONLY))
+  faf_dependency_download(SDL3)
+  faf_dependency_download(FAudio)
+  faf_dependency_download(DirectX-Headers)
+  faf_dependency_download(dxc-linux)
 endif()
 
 faf_dependency_patches(WildMagic3p8 submodule

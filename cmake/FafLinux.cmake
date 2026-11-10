@@ -103,8 +103,14 @@ add_subdirectory("${PROJECT_SOURCE_DIR}/cmake/deps/zlib" "${CMAKE_BINARY_DIR}/de
 # download (FAF_FETCH_DEPENDENCIES=OFF, or no network) the channel is left out and the
 # simulation targets build as before.
 option(FAF_FETCH_DEPENDENCIES "Fetch the net channel's Monocypher download at configure time" ON)
+# Engine addition (faf-neural-ai): the native Linux client (window, renderer, sound, UI) as well as the
+# simulation's programs; its dependencies are SDL 3, FAudio, DirectX-Headers, DXC, FreeType, msdfgen.
+option(FAF_LINUX_CLIENT "Build the native Linux client (faf_client)" OFF)
 if(FAF_FETCH_DEPENDENCIES)
   set(FAF_DEPENDENCIES_ONLY monocypher zstd googletest)
+  if(FAF_LINUX_CLIENT)
+    list(APPEND FAF_DEPENDENCIES_ONLY SDL3 FAudio DirectX-Headers dxc-linux freetype msdfgen DirectXTex)
+  endif()
   include(FafDependencies)
 endif()
 add_subdirectory("${PROJECT_SOURCE_DIR}/cmake/deps/monocypher" "${CMAKE_BINARY_DIR}/deps/monocypher")
@@ -476,3 +482,55 @@ add_test(NAME lua COMMAND faf_lua_tests)
 # Every GoogleTest executable of the Linux build (cmake/FafTests.cmake).
 include(FafTests)
 faf_add_tests_target("${PROJECT_SOURCE_DIR}")
+
+# --- faf_client (faf-neural-ai): the native Linux client --------------------------------
+# The client's own translation units (FAF_ENGINE_SOURCES without the simulation's), compiled as the
+# simulation's are, on top of every faf_sim object: the same simulation as headless and Windows. Left
+# out: the Direct3D backends, Effects 11, the lockstep UDP transport (online play stays Windows-only),
+# the Windows crash plumbing, the wx tool windows (script debugger, log window, effect and reference
+# editors) and the Win32 application shell, which src/platform/sdl replaces with SDL 3.
+if(FAF_LINUX_CLIENT)
+  add_subdirectory("${PROJECT_SOURCE_DIR}/cmake/deps/sdl3" "${CMAKE_BINARY_DIR}/deps/sdl3")
+  add_subdirectory("${PROJECT_SOURCE_DIR}/cmake/deps/faudio" "${CMAKE_BINARY_DIR}/deps/faudio")
+  add_subdirectory("${PROJECT_SOURCE_DIR}/cmake/deps/freetype" "${CMAKE_BINARY_DIR}/deps/freetype")
+  add_subdirectory("${PROJECT_SOURCE_DIR}/cmake/deps/msdfgen" "${CMAKE_BINARY_DIR}/deps/msdfgen")
+
+  include("${PROJECT_SOURCE_DIR}/src/platform/sdl/sources.cmake")
+  set(_faf_client_files "")
+  foreach(_src IN LISTS FAF_ENGINE_SOURCES)
+    if(_src IN_LIST FAF_SIM_SOURCES)
+      continue()
+    endif()
+    set(_skip FALSE)
+    foreach(_pattern IN LISTS FAF_LINUX_CLIENT_EXCLUDE)
+      if(_src MATCHES "${_pattern}")
+        set(_skip TRUE)
+      endif()
+    endforeach()
+    if(_skip)
+      continue()
+    endif()
+    list(APPEND _faf_client_files "${PROJECT_SOURCE_DIR}/src/${_src}")
+  endforeach()
+  foreach(_src IN LISTS FAF_LINUX_CLIENT_SOURCES)
+    list(APPEND _faf_client_files "${PROJECT_SOURCE_DIR}/src/${_src}")
+  endforeach()
+  list(LENGTH _faf_client_files _faf_client_count)
+  message(STATUS "faf_client: ${_faf_client_count} client translation units")
+
+  add_library(faf_client_objects OBJECT ${_faf_client_files})
+  target_link_libraries(faf_client_objects PUBLIC faf_sim_settings Wm3Headers zlib123 faf_zstd
+    SDL3::SDL3-static FAudio-static faf_freetype faf_msdfgen)
+  target_compile_definitions(faf_client_objects PUBLIC FAF_LINUX_CLIENT=1)
+  target_include_directories(faf_client_objects PUBLIC
+    # wx's names for the UI's event handlers and the shell's windows, on SDL (src/platform/sdl/wx)
+    "${PROJECT_SOURCE_DIR}/src/platform/sdl/wx-lite"
+    "${FAF_DEPENDENCIES_DIR}/vulkan/include"
+    "${FAF_DEPENDENCIES_DIR}/DirectX-Headers/include/directx"
+    "${FAF_DEPENDENCIES_DIR}/dxc-linux/include")
+
+  add_executable(faf_client $<TARGET_OBJECTS:faf_client_objects>)
+  set_target_properties(faf_client PROPERTIES OUTPUT_NAME "faf")
+  target_link_libraries(faf_client PRIVATE faf_sim faf_client_objects)
+  target_link_options(faf_client PRIVATE -Wl,--error-limit=0)
+endif()
