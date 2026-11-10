@@ -33,7 +33,7 @@
 #include "gpg/core/reflection/Reflection.h"
 #include "moho/containers/SCoordsVec2.h"
 #include "Wm3Box2.h"
-#include "Wm3IntrBox2Box2.h"
+#include "moho/math/Wm3Queries.h"
 
 using namespace moho;
 
@@ -53,41 +53,6 @@ namespace moho
 
 namespace
 {
-
-  [[nodiscard]] gpg::RType* ResolveTaskType()
-  {
-    if (!CTask::sType) {
-      CTask::sType = gpg::LookupRType(typeid(CTask));
-    }
-    return CTask::sType;
-  }
-
-  [[nodiscard]] gpg::RType* ResolveVector3fType()
-  {
-    static gpg::RType* cachedType = nullptr;
-    if (!cachedType) {
-      cachedType = gpg::LookupRType(typeid(Wm3::Vector3f));
-    }
-    return cachedType;
-  }
-
-  [[nodiscard]] gpg::RType* ResolveELayerType()
-  {
-    static gpg::RType* cachedType = nullptr;
-    if (!cachedType) {
-      cachedType = gpg::LookupRType(typeid(ELayer));
-    }
-    return cachedType;
-  }
-
-  [[nodiscard]] gpg::RType* ResolveSCollisionInfoType()
-  {
-    static gpg::RType* cachedType = nullptr;
-    if (!cachedType) {
-      cachedType = gpg::LookupRType(typeid(SCollisionInfo));
-    }
-    return cachedType;
-  }
 
 
   [[nodiscard]] bool IsUnitState(const Unit* unit, const EUnitState state) noexcept
@@ -270,7 +235,7 @@ namespace
     const Wm3::Box2f primaryBox = BuildCollisionBox2(primaryUnit, primaryPos, primaryLead, primaryInflatedLength);
     const Wm3::Box2f secondaryBox =
       BuildCollisionBox2(secondaryUnit, secondaryPos, secondaryLead, secondaryInflatedLength);
-    return Wm3::IntrBox2Box2f(primaryBox, secondaryBox).Test();
+    return Wm3::TestBox2Box2(primaryBox, secondaryBox);
   }
 
   // moho::func_IsSourceUnit (FUN_0062EEA0) is defined at namespace-moho file
@@ -1033,7 +998,7 @@ void CAiSteeringImpl::MemberDeserialize(gpg::ReadArchive* const archive)
 
   const gpg::RRef ownerRef{};
 
-  gpg::RType* const taskType = ResolveTaskType();
+  gpg::RType* const taskType = gpg::CachedLookup<CTask>(CTask::sType);
   GPG_ASSERT(taskType != nullptr);
   if (!taskType) {
     return;
@@ -1051,7 +1016,7 @@ void CAiSteeringImpl::MemberDeserialize(gpg::ReadArchive* const archive)
   archive->ReadPointer(&mOwnerUnit, &ownerRef);
   archive->ReadUInt(reinterpret_cast<unsigned int*>(&mWaypointCount));
 
-  gpg::RType* const vector3Type = ResolveVector3fType();
+  gpg::RType* const vector3Type = gpg::RTypeOf<Wm3::Vector3f>();
   GPG_ASSERT(vector3Type != nullptr);
   if (!vector3Type) {
     return;
@@ -1067,7 +1032,7 @@ void CAiSteeringImpl::MemberDeserialize(gpg::ReadArchive* const archive)
 
   archive->ReadUInt(reinterpret_cast<unsigned int*>(&mCurrentWaypointIndex));
 
-  gpg::RType* const layerType = ResolveELayerType();
+  gpg::RType* const layerType = gpg::RTypeOf<ELayer>();
   GPG_ASSERT(layerType != nullptr);
   if (!layerType) {
     return;
@@ -1076,7 +1041,7 @@ void CAiSteeringImpl::MemberDeserialize(gpg::ReadArchive* const archive)
 
   archive->ReadPointer(&mUnitMotion, &ownerRef);
 
-  gpg::RType* const collisionInfoType = ResolveSCollisionInfoType();
+  gpg::RType* const collisionInfoType = gpg::RTypeOf<SCollisionInfo>();
   GPG_ASSERT(collisionInfoType != nullptr);
   if (!collisionInfoType) {
     return;
@@ -1114,7 +1079,7 @@ void CAiSteeringImpl::MemberSerialize(gpg::WriteArchive* const archive) const
 
   const gpg::RRef ownerRef{};
 
-  gpg::RType* const taskType = ResolveTaskType();
+  gpg::RType* const taskType = gpg::CachedLookup<CTask>(CTask::sType);
   GPG_ASSERT(taskType != nullptr);
   if (!taskType) {
     return;
@@ -1127,7 +1092,7 @@ void CAiSteeringImpl::MemberSerialize(gpg::WriteArchive* const archive) const
 
   archive->WriteUInt(static_cast<unsigned int>(mWaypointCount));
 
-  gpg::RType* const vector3Type = ResolveVector3fType();
+  gpg::RType* const vector3Type = gpg::RTypeOf<Wm3::Vector3f>();
   GPG_ASSERT(vector3Type != nullptr);
   if (!vector3Type) {
     return;
@@ -1140,7 +1105,7 @@ void CAiSteeringImpl::MemberSerialize(gpg::WriteArchive* const archive) const
 
   archive->WriteUInt(static_cast<unsigned int>(mCurrentWaypointIndex));
 
-  gpg::RType* const layerType = ResolveELayerType();
+  gpg::RType* const layerType = gpg::RTypeOf<ELayer>();
   GPG_ASSERT(layerType != nullptr);
   if (!layerType) {
     return;
@@ -1149,7 +1114,7 @@ void CAiSteeringImpl::MemberSerialize(gpg::WriteArchive* const archive) const
 
   archive->WritePointer<moho::CUnitMotion>(mUnitMotion, gpg::TrackedPointerState::Unowned, ownerRef);
 
-  gpg::RType* const collisionInfoType = ResolveSCollisionInfoType();
+  gpg::RType* const collisionInfoType = gpg::RTypeOf<SCollisionInfo>();
   GPG_ASSERT(collisionInfoType != nullptr);
   if (!collisionInfoType) {
     return;

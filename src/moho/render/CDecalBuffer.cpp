@@ -1,4 +1,5 @@
 #include "moho/render/CDecalBuffer.h"
+#include "moho/sim/SimBlockLane.h"
 
 #include <algorithm>
 #include <cmath>
@@ -8,9 +9,8 @@
 #include <new>
 #include <stdexcept>
 #include <typeinfo>
-#include <unordered_map>
-#include <utility>
 #include <vector>
+#include <utility>
 
 #include "gpg/core/containers/ReadArchive.h"
 #include "gpg/core/containers/Rect2.h"
@@ -47,24 +47,6 @@ namespace
     "sim_SplatSkip", "CreateSplatOnBone makes nothing when no one draws decals (sim_DecalVisibility 0, training).",
     &sim_SplatSkip
   );
-
-  // Engine addition (performance, sim_DecalBuckets): CleanupTick expires handles from the start-tick
-  // buckets instead of walking every decal each tick (decals expire on most ticks of a battle, so a walk
-  // ran on most ticks). The due handles are destroyed in list order -- handles only ever join the list at
-  // its tail (CreateHandle, ReadDecalHandles), so the order they joined in, kept here, is list order.
-  bool sim_DecalBuckets = true;
-  moho::TConVar<bool> gTConVar_sim_DecalBuckets(
-    "sim_DecalBuckets",
-    "Expire decals from their start-tick buckets, in list order, instead of walking every decal (same order).",
-    &sim_DecalBuckets
-  );
-  std::unordered_map<const CDecalHandle*, std::uint64_t> sDecalJoinOrder; // live handles -> join order
-  std::uint64_t sNextDecalJoin = 0u;
-
-  void NoteDecalJoined(const CDecalHandle* const handle)
-  {
-    sDecalJoinOrder[handle] = ++sNextDecalJoin;
-  }
 } // namespace
 
 namespace
@@ -75,9 +57,20 @@ namespace
    * What it does:
    * Appends one visible decal payload into the pending publish vector.
    */
-  void AppendVisibleDecal(msvc8::vector<SDecalInfo>& visibleDecals, const SDecalInfo& decalInfo)
+  void AppendVisibleDecal(fa::vector<SDecalInfo>& visibleDecals, const SDecalInfo& decalInfo)
   {
+#if defined(_M_X64) || defined(__x86_64__)
+    // 6 entries of 0x90 bytes land in the binary's 896-byte class (0x0077ACC0).
+    const void* const oldStorage = visibleDecals.begin();
     visibleDecals.push_back(decalInfo);
+    const void* const newStorage = visibleDecals.begin();
+    if (newStorage != oldStorage) {
+      SimBlockLane::NoteStorageAllocated(newStorage, visibleDecals.capacity() * 0x90u);
+      SimBlockLane::NoteStorageFreed(oldStorage);
+    }
+#else
+    visibleDecals.push_back(decalInfo);
+#endif
   }
 
   [[nodiscard]]
@@ -90,7 +83,7 @@ namespace
     }
 
     const std::uint32_t recycled = pool.mReleasedLows.GetNext(std::numeric_limits<std::uint32_t>::max());
-    pool.mReleasedLows.Remove(recycled);
+    (void)pool.mReleasedLows.Remove(recycled);
     return recycled;
   }
 
@@ -178,7 +171,6 @@ CDecalBuffer::~CDecalBuffer()
   while (mHandleListHead.mNext != listHeadNode) {
     CDecalHandleListNode* const node = mHandleListHead.mNext;
     CDecalHandle* const handle = CDecalHandle::FromListNode(node);
-    sDecalJoinOrder.erase(handle);
     delete handle;
   }
 
@@ -195,7 +187,7 @@ CDecalBuffer::~CDecalBuffer()
  * Swaps runtime storage pointers for both decal publish vectors:
  * visible decals and pending hide object-id lanes.
  */
-void CDecalBuffer::SwapVectors(msvc8::vector<SDecalInfo>* const addDecals, msvc8::vector<std::uint32_t>* const removeDecals)
+void CDecalBuffer::SwapVectors(fa::vector<SDecalInfo>* const addDecals, fa::vector<std::uint32_t>* const removeDecals)
 {
   // Exchanging all three lanes pairwise is vector::swap.
   mVisibleDecals.swap(*addDecals);
@@ -230,7 +222,6 @@ CDecalHandle* CDecalBuffer::CreateHandle(const SDecalInfo& info)
   if (handle->mInfo.mStartTick != 0u) {
     mStartTickBuckets[handle->mInfo.mStartTick].insert(handle);
   }
-  NoteDecalJoined(handle);
 
   // sim_DecalVisibility 0 / training (engine addition, performance): the per-army visibility flags only
   // feed CleanupTick's visibility pass, which then never runs.
@@ -310,7 +301,6 @@ void CDecalBuffer::ReadDecalHandles(gpg::ReadArchive* const ar)
     if (handle->mInfo.mStartTick != 0u) {
       mStartTickBuckets[handle->mInfo.mStartTick].insert(handle);
     }
-    NoteDecalJoined(handle);
   }
 }
 
@@ -345,7 +335,6 @@ void CDecalBuffer::DestroyHandle(CDecalHandle* const handleOpaque)
 
   mPool.QueueReleasedLowId(handleOpaque->mInfo.mObj);
 
-  sDecalJoinOrder.erase(handleOpaque);
   delete handleOpaque;
 }
 
@@ -437,42 +426,34 @@ void CDecalBuffer::CleanupTick()
 
   const std::uint32_t curTick = mSim->mCurTick;
 
-  // Pass 1: expire handles whose start tick has elapsed.
-  const auto* const listHeadNode = static_cast<const CDecalHandleListNode*>(&mHandleListHead);
-  if (sim_DecalBuckets) {
-    // Every live handle with a start tick sits in its bucket (CreateHandle / ReadDecalHandles put it
-    // there; DestroyHandle takes it out), so the due ones are the buckets up to now. Destroyed in the
-    // order they joined the list, which is the order the walk below meets them in.
-    static std::vector<std::pair<std::uint64_t, CDecalHandle*>> sDue;
-    sDue.clear();
-    for (auto bucket = mStartTickBuckets.begin();
-         bucket != mStartTickBuckets.end() && bucket->first <= curTick;) {
-      for (CDecalHandle* const handle : bucket->second) {
-        const auto joined = sDecalJoinOrder.find(handle);
-        if (joined != sDecalJoinOrder.end() && handle->mInfo.mStartTick != 0u &&
-            handle->mInfo.mStartTick <= curTick) {
-          sDue.emplace_back(joined->second, handle);
-        }
-      }
-      bucket = mStartTickBuckets.erase(bucket);
+  // 0x00779737..0x00779857: while the first bucket's tick has come, its set moves out of the map,
+  // the bucket's map node goes, and every handle in the set is destroyed.
+  while (!mStartTickBuckets.empty()) {
+    const auto first = mStartTickBuckets.begin();
+    if (first->first > curTick) {
+      break;
     }
-    std::sort(sDue.begin(), sDue.end());
-    for (const auto& [joined, handle] : sDue) {
-      (void)joined;
+    CDecalBucketSet expired;
+    expired.swap(first->second);
+    mStartTickBuckets.erase(first);
+#if defined(_M_X64) || defined(__x86_64__)
+    // The set is sorted by pointer, and each release can grow the id set's words, whose storage takes blocks
+    // (`SimBlockLane`). Retail's heap gives this order nearly always: 26992801, ticks 4155 to 4157, has 2 of 204 ids
+    // out of it, and it takes the same blocks retail does at all three.
+    std::vector<CDecalHandle*> ordered(expired.begin(), expired.end());
+    std::sort(ordered.begin(), ordered.end(), [](const CDecalHandle* const lhs, const CDecalHandle* const rhs) {
+      return lhs->mInfo.mObj > rhs->mInfo.mObj;
+    });
+#else
+    const CDecalBucketSet& ordered = expired;
+#endif
+    for (CDecalHandle* const handle : ordered) {
       handle->mInfo.mStartTick = 0u;
       DestroyHandle(handle);
     }
-  } else {
-    for (CDecalHandleListNode* node = mHandleListHead.mNext; node != listHeadNode;) {
-      CDecalHandleListNode* const next = node->mNext;
-      CDecalHandle* const handle = CDecalHandle::FromListNode(node);
-      if (handle->mInfo.mStartTick != 0u && handle->mInfo.mStartTick <= curTick) {
-        handle->mInfo.mStartTick = 0u;
-        DestroyHandle(handle);
-      }
-      node = next;
-    }
   }
+
+  const auto* const listHeadNode = static_cast<const CDecalHandleListNode*>(&mHandleListHead);
 
   CArmyImpl** const armiesBegin = mSim->mArmiesList.begin();
   CArmyImpl** const armiesEnd = mSim->mArmiesList.end();
@@ -541,9 +522,4 @@ void CDecalBuffer::CleanupTick()
 bool moho::DECAL_SkipSplats()
 {
   return sim_SplatSkip && (!sim_DecalVisibility || AGENT_TrainingMode());
-}
-
-void moho::DECAL_ForgetHandle(const CDecalHandle* const handle)
-{
-  sDecalJoinOrder.erase(handle); // sim_DecalBuckets: every way a handle dies passes here
 }

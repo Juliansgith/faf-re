@@ -55,6 +55,11 @@ namespace faf::remote::wire
     [[nodiscard]] bool operator==(const SCategoryBits& other) const noexcept = default;
   };
 
+  /** A category set on the wire: its first word index, then its words. */
+  void WriteCategoryBits(BitWriter& writer, const SCategoryBits& bits);
+  /** False, with the reader failed, for more than `SCategoryBits::kMaxWords` words or a short stream. */
+  [[nodiscard]] bool ReadCategoryBits(BitReader& reader, SCategoryBits& bits);
+
   /** One weapon's UI facts (`UnitWeaponInfo`): target categories, layer, ranges, range rings. */
   struct SUnitWeapon
   {
@@ -209,6 +214,18 @@ namespace faf::remote::wire
      */
     [[nodiscard]] bool operator==(const SEntityRecord& other) const noexcept;
   };
+
+  /**
+   * A fingerprint of what a blip's update writes to a view's record: everything but the id and the
+   * creation constants, and `detail` by value. Bitwise like `SEntityRecord::operator==`; never 0.
+   */
+  [[nodiscard]] std::uint64_t HashBlipUpdate(const SEntityRecord& record, const SUnitDetail& detail) noexcept;
+
+  /**
+   * Plan WPR.30: a fingerprint of a whole record, the id and creation constants and motion included, so a server and
+   * its client can tell whether they hold the same frame. A frame's is the sum of its records', in any order.
+   */
+  [[nodiscard]] std::uint64_t HashRecord(const SEntityRecord& record) noexcept;
 
   /**
    * Change-mask bits, one per field after the id. On the wire the mask is a varint, so the
@@ -399,6 +416,73 @@ namespace faf::remote::wire
   [[nodiscard]] bool EncodeFrame(
     const SViewFrame& frame, const SViewFrame* baseline, const SFrameCodec& codec, BitWriter& writer
   );
+
+  /** One changed record for `EncodeFrameChanges`: which fields, and the record before and after. */
+  struct SFrameChange
+  {
+    std::uint32_t fields;
+    const SEntityRecord* after;
+    const SEntityRecord* before;
+  };
+
+  /**
+   * A frame as what differs from its baseline, for an encoder that already knows (plan WPR.35):
+   * each list ascending by id, as `EncodeFrame` finds them by walking two whole frames.
+   */
+  struct SFrameChanges
+  {
+    std::uint32_t frameId = 0;
+    std::uint32_t baselineId = kNoBaseline;
+    std::uint32_t beat = 0;
+    std::int32_t simRate = 0;
+    std::uint32_t serverMs = 0;
+    std::size_t entityCount = 0; // records in the whole frame
+    std::span<const std::uint32_t> removed;
+    std::span<const SEntityRecord* const> created;
+    std::span<const SFrameChange> changed;
+  };
+
+  /**
+   * The bytes `EncodeFrame` writes for the same frame and baseline. Only the created and changed
+   * records are tested against the codec: the others passed when they were sent.
+   */
+  [[nodiscard]] bool EncodeFrameChanges(const SFrameChanges& changes, const SFrameCodec& codec, BitWriter& writer);
+
+  /**
+   * The bits the encoder writes for a record's position (its far bit included, dead reckoning's fields not) and
+   * for its orientation (the yaw bit included, orientation reckoning's not). `before`: the baseline's record,
+   * null for a creation. For `--wire-stats`, so its classes add up to what is sent.
+   */
+  [[nodiscard]] int PositionFieldBits(const SEntityRecord& record, const SEntityRecord* before, const SFrameCodec& codec) noexcept;
+  [[nodiscard]] int OrientationFieldBits(const SEntityRecord& record, const SEntityRecord* before) noexcept;
+
+  /**
+   * Entities 12 (plan WP10.13): the id and field mask that start each change of a frame. The first
+   * id goes whole (a varint), each later one as its gap from the one before in an order-0
+   * exponential-Golomb code, as changes are mostly a few ids apart. A mask goes as its place among
+   * the frame's last 15 masks, most recent first, in the same code, or as the escape 15 and the
+   * mask as a varint: a frame's changes share a handful of masks (most a unit's position and
+   * orientation). One object per frame on each side; `Bits` writes nothing and counts, for
+   * `--wire-stats`.
+   */
+  class CChangeHeaders
+  {
+  public:
+    void Write(BitWriter& writer, std::uint32_t id, std::uint32_t fields);
+    [[nodiscard]] bool Read(BitReader& reader, std::uint32_t& id, std::uint32_t& fields) noexcept;
+    [[nodiscard]] int Bits(std::uint32_t id, std::uint32_t fields) noexcept;
+
+  private:
+    static constexpr std::uint32_t kRecent = 15; // also the escape
+
+    [[nodiscard]] std::uint32_t Find(std::uint32_t fields) const noexcept;
+    void Use(std::uint32_t place, std::uint32_t fields) noexcept;
+
+    bool mFirst = true;
+    std::uint32_t mPrevious = 0;
+    std::uint32_t mRecentMasks[kRecent]{};
+    std::uint32_t mRecentCount = 0;
+  };
 
   /** The baseline a frame on the wire was encoded against (`kNoBaseline` for a full frame). */
   [[nodiscard]] std::uint32_t PeekFrameBaseline(std::span<const std::uint8_t> bytes) noexcept;

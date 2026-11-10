@@ -53,7 +53,7 @@ namespace
    */
   [[nodiscard]] std::int16_t DepositCornerCell(const float centre, const int extent) noexcept
   {
-    return static_cast<std::int16_t>(msvc8::RoundToInt(centre - static_cast<float>(extent) * 0.5f));
+    return static_cast<std::int16_t>(fa::RoundToInt(centre - static_cast<float>(extent) * 0.5f));
   }
 
   [[nodiscard]] gpg::Rect2i BuildRectFromPointAndSize(const Wm3::Vec3f& point, const Wm3::Vec2i& size) noexcept
@@ -155,7 +155,7 @@ namespace moho
   /**
    * Address: 0x00545FC0 (FUN_00545FC0, Moho::CSimResources::GetDeposits1)
    */
-  const msvc8::vector<ResourceDeposit>& CSimResources::GetDeposits() const
+  const fa::vector<ResourceDeposit>& CSimResources::GetDeposits() const
   {
     return deposits_;
   }
@@ -163,7 +163,7 @@ namespace moho
   /**
    * Address: 0x00545FB0 (FUN_00545FB0, Moho::CSimResources::GetDeposits2)
    */
-  msvc8::vector<ResourceDeposit>& CSimResources::GetDeposits()
+  fa::vector<ResourceDeposit>& CSimResources::GetDeposits()
   {
     return deposits_;
   }
@@ -257,7 +257,7 @@ namespace moho
     /// The index of `resources`' deposits, rebuilt first when they changed; the caller holds the lock.
     [[nodiscard]] const DepositIndex& DepositIndexFor(const CSimResources& resources)
     {
-      const msvc8::vector<ResourceDeposit>& deposits = resources.deposits_;
+      const fa::vector<ResourceDeposit>& deposits = resources.deposits_;
       DepositIndex& index = sDepositIndex;
       const void* const data = deposits.empty() ? nullptr : &*deposits.begin();
       if (index.owner == &resources && index.data == data && index.size == deposits.size() &&

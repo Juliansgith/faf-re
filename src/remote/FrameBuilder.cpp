@@ -2,11 +2,17 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
+#include <string>
+#include <unordered_map>
 
 #include "moho/audio/CSndParams.h"
 #include "moho/audio/CSndVar.h"
+#include "moho/entity/Entity.h"
+#include "moho/entity/EntityId.h"
 #include "moho/entity/REntityBlueprint.h"
+#include "moho/sim/ReconBlip.h"
 #include "moho/misc/StatItem.h"
 #include "moho/unit/core/UnitAttributes.h"
 #include "moho/resource/blueprints/RUnitBlueprint.h"
@@ -16,6 +22,8 @@
 #include "remote/UnderlayPaths.h"
 #include "moho/resource/blueprints/RMeshBlueprint.h"
 #include "moho/sim/SimDriver.h"
+#include "moho/sim/SimWorkerPool.h"
+#include "remote/BeatChangeSet.h"
 #include "moho/unit/core/Unit.h"
 
 // Engine addition, server mode: see FrameBuilder.h. Reads the packet only.
@@ -30,17 +38,46 @@ namespace faf::remote
       if (params == nullptr || session == nullptr) {
         return wire::COrdinalTable::kNone;
       }
+      // Each thread's sounds already interned: the same few `CSndParams` come back every beat on every view. An
+      // entry holds for the same object with the same names (an object freed and made again may differ).
+      struct SCached
+      {
+        std::string bank, cue, lodCutoff, rpcLoop;
+        std::uint32_t id;
+      };
+      struct SThreadSounds
+      {
+        std::uint64_t session = 0;
+        std::unordered_map<const moho::CSndParams*, SCached> ids;
+      };
+      thread_local SThreadSounds sounds;
+      if (sounds.session != session->Serial()) {
+        sounds.ids.clear();
+        sounds.session = session->Serial();
+      }
+      const char* const lodCutoff = params->mLodCutoff != nullptr ? params->mLodCutoff->mName.c_str() : "";
+      const char* const rpcLoop = params->mRpcLoopVariable != nullptr ? params->mRpcLoopVariable->mName.c_str() : "";
+      if (const auto found = sounds.ids.find(params); found != sounds.ids.end()) {
+        const SCached& cached = found->second;
+        if (cached.bank == params->mBank.c_str() && cached.cue == params->mCue.c_str() && cached.lodCutoff == lodCutoff
+            && cached.rpcLoop == rpcLoop) {
+          return cached.id;
+        }
+      }
       wire::SSoundEntry entry;
       entry.bank = params->mBank.c_str();
       entry.cue = params->mCue.c_str();
-      entry.lodCutoff = params->mLodCutoff != nullptr ? params->mLodCutoff->mName.c_str() : "";
-      entry.rpcLoop = params->mRpcLoopVariable != nullptr ? params->mRpcLoopVariable->mName.c_str() : "";
-      return session->Sound(entry);
+      entry.lodCutoff = lodCutoff;
+      entry.rpcLoop = rpcLoop;
+      const std::uint32_t id = session->Sound(entry);
+      sounds.ids[params] = SCached{entry.bank, entry.cue, entry.lodCutoff, entry.rpcLoop, id};
+      return id;
     }
 
     void ApplyAppearance(
       wire::SAppearance& look, const std::uint32_t entityId, const moho::SSTIEntityVariableData& data,
-      const wire::SContentTables& tables, wire::CSessionTableWriters* const session, std::uint64_t& unknownUnderlays
+      const wire::SContentTables& tables, wire::CSessionTableWriters* const session, const CUnderlayPathReader& underlays,
+      std::uint64_t& unknownUnderlays
     )
     {
       look.mesh = data.mMeshBlueprint != nullptr ? tables.meshes.Ordinal(data.mMeshBlueprint->mBlueprintId.c_str())
@@ -64,19 +101,53 @@ namespace faf::remote
       // The underlay by the path `Entity::SetStrategicUnderlay` recorded: a server without a
       // client has no texture to read it from.
       look.underlay = wire::COrdinalTable::kNone;
-      if (const std::string path = UnderlayPath(entityId); !path.empty() && session != nullptr) {
-        look.underlay = session->Name(path.c_str());
+      if (const std::string* const path = underlays.Find(entityId); path != nullptr && session != nullptr) {
+        look.underlay = session->Name(path->c_str());
       } else if (data.mUnderlayTexture) {
         ++unknownUnderlays; // a texture whose path was not recorded
       }
     }
 
+    constexpr std::int32_t kUnitReconFlags = 28; // `Unit::SyncInterface`, 0x006AC4DC..0x006AC500
+
+    /**
+     * What `SSTIEntityVariableData::operator=` copies, less what the builder does not read: the
+     * mesh resource and the attached entities (`WriteEntityBlockForView` writes those). Sim
+     * objects are shared by every view on every worker, so their reference counts stay untouched,
+     * except for an underlay, which hardly any entity has.
+     */
+    void CopyEntityBlockReadByBuilder(moho::SSTIEntityVariableData& to, const moho::SSTIEntityVariableData& from)
+    {
+      to.mMeshBlueprint = from.mMeshBlueprint;
+      to.mScale = from.mScale;
+      to.mHealth = from.mHealth;
+      to.mMaxHealth = from.mMaxHealth;
+      to.mIsBeingBuilt = from.mIsBeingBuilt;
+      to.mIsDead = from.mIsDead;
+      to.mCurTransform = from.mCurTransform;
+      to.mLastTransform = from.mLastTransform;
+      to.mCurImpactValue = from.mCurImpactValue;
+      to.mFractionComplete = from.mFractionComplete;
+      to.mScrollBeatStart = from.mScrollBeatStart;
+      to.mScrollBeatEnd = from.mScrollBeatEnd;
+      to.mAmbientSound = from.mAmbientSound;
+      to.mRumbleSound = from.mRumbleSound;
+      to.mLayerMask = from.mLayerMask;
+      to.mUsingAltFootprint = from.mUsingAltFootprint;
+      to.mUsingAltFootprintSecondary = from.mUsingAltFootprintSecondary;
+      if (from.mUnderlayTexture || to.mUnderlayTexture) {
+        to.mUnderlayTexture = from.mUnderlayTexture;
+      }
+      to.mIntelAttributes = from.mIntelAttributes;
+    }
+
     void ApplyVariableData(
       wire::SEntityRecord& record, const moho::SSTIEntityVariableData& data, const wire::SFrameCodec& codec,
-      const wire::SContentTables& tables, wire::CSessionTableWriters* const session, std::uint64_t& unknownUnderlays
+      const wire::SContentTables& tables, wire::CSessionTableWriters* const session, const CUnderlayPathReader& underlays,
+      std::uint64_t& unknownUnderlays
     )
     {
-      ApplyAppearance(record.appearance, record.id, data, tables, session, unknownUnderlays);
+      ApplyAppearance(record.appearance, record.id, data, tables, session, underlays, unknownUnderlays);
       const auto& pos = data.mCurTransform.pos_;
       const auto& orient = data.mCurTransform.orient_;
       record.position = {codec.position.x.Encode(pos.x), codec.position.y.Encode(pos.y), codec.position.z.Encode(pos.z)};
@@ -117,7 +188,7 @@ namespace faf::remote
       }
     }
 
-    [[nodiscard]] std::uint32_t NameId(const msvc8::string& name, wire::CSessionTableWriters* const session)
+    [[nodiscard]] std::uint32_t NameId(const fa::string& name, wire::CSessionTableWriters* const session)
     {
       return session != nullptr ? session->Name(name.c_str()) : wire::COrdinalTable::kNone;
     }
@@ -200,6 +271,51 @@ namespace faf::remote
         | (data.mIsBusy ? 8u : 0u) | (data.mRepeatQueue ? 16u : 0u) | (data.mIsValidTarget ? 32u : 0u)
         | (data.mOverchargePaused ? 64u : 0u)
       );
+    }
+
+    /** 0x005BF168..0x005BF1C4: the entity block from the view's recon record. */
+    void WriteReconBlock(
+      moho::SSTIEntityVariableData& block, const moho::SPerArmyReconInfo& recon, const std::uint32_t vision, const bool hasVision
+    )
+    {
+      if (hasVision) {
+        block.mIntelAttributes.SetIntelRadius(moho::ENTATTR_Vision, static_cast<int>(vision));
+      }
+      block.mMeshBlueprint = recon.mStiMesh;
+      block.mHealth = recon.mHealth;
+      block.mMaxHealth = recon.mMaxHealth;
+      block.mFractionComplete = recon.mFractionComplete;
+      block.mIsDead = recon.mMaybeDead;
+    }
+
+    /** What `ApplyVariableData` and `ApplyUnitData` write, from a record they wrote (`wire::HashBlipUpdate` covers the same). */
+    void CopyBlipRecord(wire::SEntityRecord& record, const wire::SEntityRecord& from)
+    {
+      record.appearance = from.appearance;
+      record.position = from.position;
+      record.farPosition = from.farPosition;
+      record.farValue = from.farValue;
+      if (from.farPosition) {
+        record.velocity = {};
+        record.anchorBeat = 0;
+      }
+      record.yawOnly = from.yawOnly;
+      record.orientation = from.orientation;
+      record.health = from.health;
+      record.maxHealth = from.maxHealth;
+      record.fractionComplete = from.fractionComplete;
+      record.flags = static_cast<std::uint16_t>(from.flags | (record.flags & kEntityFlagOrphaned));
+      if (record.isUnit) {
+        wire::SUnitFields& unit = record.unit;
+        const wire::SUnitFields& fields = from.unit;
+        unit.fuelRatio = fields.fuelRatio;
+        unit.shieldRatio = fields.shieldRatio;
+        unit.workProgress = fields.workProgress;
+        unit.unitStates = fields.unitStates;
+        unit.scriptBits = fields.scriptBits;
+        unit.siloCounts = fields.siloCounts;
+        unit.unitFlags = fields.unitFlags;
+      }
     }
   } // namespace
 
@@ -292,13 +408,13 @@ namespace faf::remote
   )
   {
     out.clear();
-    moho::STAT_VisitItems(stats, [&](const msvc8::string& path, moho::StatItem& item) {
+    moho::STAT_VisitItems(stats, [&](const fa::string& path, moho::StatItem& item) {
       wire::SUnitStat stat{};
       stat.name = session.Name(path.c_str());
       stat.type = static_cast<std::uint8_t>(static_cast<std::uint32_t>(item.mType) & 3u);
       stat.realtime = item.mUseRealtimeSlot == 1;
       if (stat.type == wire::SUnitStat::kString) {
-        msvc8::string value;
+        fa::string value;
         (void)item.GetString(stat.realtime, &value);
         stat.text = session.Name(value.c_str());
       } else {
@@ -311,59 +427,537 @@ namespace faf::remote
     std::sort(out.begin(), out.end(), [](const wire::SUnitStat& a, const wire::SUnitStat& b) { return a.name < b.name; });
   }
 
-  void CViewFrameBuilder::Apply(const moho::SSyncData& packet)
+  void CViewFrameBuilder::DropStats(const std::uint32_t id)
+  {
+    if (const auto found = mUnitStats.find(id); found != mUnitStats.end()) {
+      if (mSharedStats != nullptr) {
+        auto [first, last] = mStatsIds.equal_range(found->second.get());
+        for (; first != last; ++first) {
+          if (first->second == id) {
+            mStatsIds.erase(first);
+            break;
+          }
+        }
+      }
+      mDroppedStats.push_back(std::move(found->second));
+      mUnitStats.erase(found);
+    }
+  }
+
+  void CViewFrameBuilder::ReleaseDropped()
+  {
+    mDroppedStats.clear();
+  }
+
+  CSharedEntityRecords::CSharedEntityRecords(const wire::SContentTables& tables, const wire::SFrameCodec& codec)
+    : mTables(tables)
+    , mCodec(codec)
+  {}
+
+  CSharedEntityRecords::~CSharedEntityRecords() = default;
+
+  bool CSharedEntityRecords::Shareable(const moho::Entity& entity) noexcept
+  {
+    const moho::SSTIEntityVariableData& data = entity.mVarDat;
+    return data.mAmbientSound == nullptr && data.mRumbleSound == nullptr && !data.mUnderlayTexture;
+  }
+
+  void CSharedEntityRecords::BeginBeat(const std::size_t changedCount)
+  {
+    mFree.insert(mFree.end(), mReplaced.begin(), mReplaced.end());
+    mReplaced.clear();
+    if (changedCount > mUpdateCapacity) {
+      mUpdates = std::make_unique<SSharedUpdate[]>(changedCount * 2u);
+      mUpdateCapacity = changedCount * 2u;
+    } else {
+      for (std::size_t i = 0; i < mUpdateCount; ++i) {
+        mUpdates[i].modes.store(0u, std::memory_order_relaxed);
+      }
+    }
+    mUpdateCount = changedCount;
+  }
+
+  void CSharedEntityRecords::Build(const std::vector<SChangedEntity>& changed, const bool parallel)
+  {
+    // Which records go where is decided here; filling them touches only each entity's own.
+    for (std::size_t i = 0; i < changed.size(); ++i) {
+      SSharedUpdate& update = mUpdates[i];
+      const auto modes = update.modes.load(std::memory_order_relaxed);
+      const moho::Entity& entity = *changed[i].entity;
+      const auto id = static_cast<std::uint32_t>(entity.id_);
+      SEntry* entry = mEntries.Find(id);
+      if (entry != nullptr) {
+        for (std::uint32_t& record : entry->records) {
+          if (record != kNoRecord) {
+            mReplaced.push_back(record);
+            record = kNoRecord;
+          }
+        }
+      }
+      if (modes == 0u) {
+        if (entry != nullptr) {
+          mEntries.Erase(id);
+        }
+        continue;
+      }
+      if (entry == nullptr) {
+        entry = &mEntries.Insert(id, SEntry{});
+      }
+      const auto tickCreated = static_cast<std::uint32_t>(entity.mTickCreated);
+      if (entry->entity != &entity || entry->tickCreated != tickCreated) {
+        entry->entity = &entity;
+        entry->tickCreated = tickCreated;
+        entry->blueprint = entity.BluePrint != nullptr ? mTables.blueprints.Ordinal(entity.BluePrint->mBlueprintId.c_str())
+                                                       : wire::COrdinalTable::kNone;
+      }
+      for (std::size_t mode = 0; mode < SSharedUpdate::kModes; ++mode) {
+        if ((modes & (1u << mode)) == 0u) {
+          continue;
+        }
+        std::uint32_t index;
+        if (!mFree.empty()) {
+          index = mFree.back();
+          mFree.pop_back();
+        } else {
+          index = static_cast<std::uint32_t>(mRecords.size());
+          mRecords.grow_to(mRecords.size() + 1u);
+        }
+        entry->records[mode] = index;
+        wire::SEntityRecord& record = mRecords[index];
+        update.records[mode] = &record;
+        record.id = id;
+        record.tickCreated = entry->tickCreated;
+        record.blueprint = entry->blueprint;
+      }
+    }
+
+    const auto fill = [&](const std::size_t begin, const std::size_t end) {
+      moho::SSTIEntityVariableData block;
+      std::uint64_t unknownUnderlays = 0; // none: `Shareable`
+      for (std::size_t i = begin; i < end; ++i) {
+        const auto modes = mUpdates[i].modes.load(std::memory_order_relaxed);
+        if (modes == 0u) {
+          continue;
+        }
+        moho::Entity& entity = *changed[i].entity;
+        CopyEntityBlockReadByBuilder(block, entity.mVarDat);
+        for (std::size_t mode = 0; mode < SSharedUpdate::kModes; ++mode) {
+          if ((modes & (1u << mode)) != 0u) {
+            WriteEntityBlockForView(
+              block, entity, static_cast<moho::EUserEntityVisibilityMode>(1 << mode), changed[i].requestRefreshUI
+            );
+            ApplyVariableData(
+              *mUpdates[i].records[mode], block, mCodec, mTables, nullptr, mNoUnderlays, unknownUnderlays
+            );
+          }
+        }
+      }
+    };
+    if (parallel) {
+      moho::CSimWorkerPool::Get().ParallelFor(changed.size(), 256u, fill);
+    } else {
+      fill(0u, changed.size());
+    }
+  }
+
+  void CSharedEntityRecords::ReserveBlipRecords(const std::size_t count)
+  {
+    if (count > mBlipRecords.size()) {
+      mBlipRecords.grow_to(count);
+    }
+  }
+
+  void CSharedEntityRecords::FillBlipRecord(
+    SBlipRecord& out, moho::SSTIEntityVariableData& block, moho::ReconBlip& blip, const bool requestRefreshUI, const std::size_t army,
+    const moho::EUserEntityVisibilityMode mode, const std::uint32_t vision, const bool hasVision
+  ) const
+  {
+    moho::Entity& entity = blip;
+    CopyEntityBlockReadByBuilder(block, entity.mVarDat);
+    WriteEntityBlockForView(block, entity, mode, requestRefreshUI);
+    const moho::SPerArmyReconInfo& recon = blip.mReconDat[army];
+    WriteReconBlock(block, recon, vision, hasVision);
+    out.record.id = static_cast<std::uint32_t>(entity.id_);
+    std::uint64_t unknownUnderlays = 0; // none: `Shareable`
+    ApplyVariableData(out.record, block, mCodec, mTables, nullptr, mNoUnderlays, unknownUnderlays);
+    ApplyUnitData(out.record.unit, blip.mUnitVarDat);
+    ApplyUnitDetail(out.detail, blip.mUnitVarDat, static_cast<std::int32_t>(recon.mReconFlags), mTables, mSession);
+    if (const moho::Unit* const creator = blip.mCreator.GetObjectPtr(); creator != nullptr) {
+      out.detail.stunTicks = creator->mUnitVarDat.mStunTicks != 0 ? 1 : 0;
+    }
+    out.hash = wire::HashBlipUpdate(out.record, out.detail);
+  }
+
+  void CViewFrameBuilder::ClearBefore() noexcept
+  {
+    for (const std::uint32_t slot : mBeforeSlots) {
+      mBeforeRecords[slot] = nullptr;
+    }
+    mBeforeSlots.clear();
+    mBefore.clear();
+  }
+
+  void CViewFrameBuilder::SaveBefore(const std::uint32_t slot)
+  {
+    if (slot < mWatched.size() && mWatched[slot] != 0u && mBeforeRecords[slot] == nullptr) {
+      const wire::SEntityRecord* record = mWorldSlots[slot];
+      if (mLocalSlots[slot] != kNoLocal) {
+        record = &mBefore.push_back(*record);
+      }
+      mBeforeRecords[slot] = record;
+      mBeforeSlots.push_back(slot);
+    }
+  }
+
+  wire::SEntityRecord& CViewFrameBuilder::LocalRecord(const std::uint32_t slot)
+  {
+    if (mLocalSlots[slot] != kNoLocal) {
+      return mLocalRecords[mLocalSlots[slot]];
+    }
+    std::uint32_t index;
+    if (!mFreeLocal.empty()) {
+      index = mFreeLocal.back();
+      mFreeLocal.pop_back();
+    } else {
+      index = static_cast<std::uint32_t>(mLocalRecords.size());
+      mLocalRecords.grow_to(mLocalRecords.size() + 1u);
+    }
+    mLocalSlots[slot] = index;
+    wire::SEntityRecord& record = mLocalRecords[index];
+    if (mWorldSlots[slot] != nullptr) {
+      record = *mWorldSlots[slot];
+    }
+    mWorldSlots[slot] = &record;
+    return record;
+  }
+
+  void CViewFrameBuilder::ReleaseLocal(const std::uint32_t slot)
+  {
+    const std::uint32_t index = mLocalSlots[slot];
+    if (index != kNoLocal) {
+      mLocalRecords[index] = wire::SEntityRecord{}; // lets go of what the record shares
+      mFreeLocal.push_back(index);
+      mLocalSlots[slot] = kNoLocal;
+    }
+  }
+
+  std::uint32_t CViewFrameBuilder::NewSlot(const std::uint32_t id, const std::vector<SWorldEntry>::const_iterator found)
+  {
+    std::uint32_t slot;
+    if (!mFreeSlots.empty()) {
+      slot = mFreeSlots.back();
+      mFreeSlots.pop_back();
+    } else {
+      slot = static_cast<std::uint32_t>(mWorldSlots.size());
+      (void)mWorldSlots.push_back(nullptr);
+      mLocalSlots.push_back(kNoLocal);
+    }
+    mWorldIndex.insert(found, SWorldEntry{id, slot});
+    if (mTrackChanges) {
+      mNewRecordIds.push_back(id);
+    }
+    return slot;
+  }
+
+  wire::SEntityRecord* CViewFrameBuilder::FindRecord(const std::uint32_t id)
+  {
+    const auto found = LowerBound(id);
+    if (found == mWorldIndex.end() || found->id != id) {
+      return nullptr;
+    }
+    SaveBefore(found->slot);
+    return &LocalRecord(found->slot);
+  }
+
+  wire::SEntityRecord& CViewFrameBuilder::PutRecord(const wire::SEntityRecord& record)
+  {
+    if (mTrackChanges) {
+      mTouchedIds.push_back(record.id);
+    }
+    const auto found = LowerBound(record.id);
+    std::uint32_t slot;
+    if (found != mWorldIndex.end() && found->id == record.id) {
+      slot = found->slot;
+      SaveBefore(slot);
+    } else {
+      slot = NewSlot(record.id, found);
+    }
+    wire::SEntityRecord& local = LocalRecord(slot);
+    local = record;
+    return local;
+  }
+
+  void CViewFrameBuilder::ApplySharedUpdate(const SDirectUpdate& update, std::size_t& cursor)
+  {
+    const auto id = static_cast<std::uint32_t>(update.target->entity->id_);
+    const wire::SEntityRecord* const record = update.target->shared->records[SSharedUpdate::ModeIndex(update.Mode())];
+    cursor = SeekWorld(cursor, id);
+    const auto found = mWorldIndex.cbegin() + static_cast<std::ptrdiff_t>(cursor);
+    const bool exists = found != mWorldIndex.end() && found->id == id;
+    std::uint32_t slot;
+    if (update.created) {
+      mOrphanedAt.erase(id); // an id the sim reuses is a new entity
+      if (record->blueprint == wire::COrdinalTable::kNone && update.target->entity->BluePrint != nullptr) {
+        ++mUnknownBlueprints;
+      }
+      if (exists) {
+        slot = found->slot;
+        SaveBefore(slot);
+      } else {
+        slot = NewSlot(id, found);
+      }
+    } else {
+      if (!exists) {
+        return;
+      }
+      slot = found->slot;
+      SaveBefore(slot);
+    }
+    ReleaseLocal(slot);
+    mWorldSlots[slot] = record;
+    if (mTrackChanges) {
+      mTouchedIds.push_back(id);
+    }
+  }
+
+  void CViewFrameBuilder::EraseRecord(const std::uint32_t id)
+  {
+    const auto found = LowerBound(id);
+    if (found == mWorldIndex.end() || found->id != id) {
+      return;
+    }
+    if (mTrackChanges) {
+      mErasedRecords.push_back({id, found->slot});
+    }
+    UnwatchRecord(found->slot);
+    ReleaseLocal(found->slot);
+    mWorldSlots[found->slot] = nullptr;
+    mFreeSlots.push_back(found->slot);
+    mWorldIndex.erase(found);
+  }
+
+  void WriteEntityBlockForView(
+    moho::SSTIEntityVariableData& data, moho::Entity& entity, const moho::EUserEntityVisibilityMode mode,
+    const bool requestRefreshUI
+  )
+  {
+    constexpr std::uint32_t kInvalidEntityId = moho::ToRaw(moho::EEntityIdSentinel::Invalid);
+
+    // The attach parent and children as the function writes them before its copy.
+    moho::Entity* const parent = entity.mAttachInfo.GetAttachTargetEntity();
+    data.mAttachmentParentRef = parent != nullptr ? parent->id_ : kInvalidEntityId;
+    data.mAuxValueVector.resize(
+      entity.mAttachedEntities.size(), moho::SSTIEntityAttachInfo{std::bit_cast<std::int32_t>(kInvalidEntityId)}
+    );
+    for (std::size_t i = 0; i < entity.mAttachedEntities.size(); ++i) {
+      moho::Entity* const child = entity.mAttachedEntities[i];
+      data.mAuxValueVector[i].mAttachedEntityId = std::bit_cast<std::int32_t>(child != nullptr ? child->id_ : kInvalidEntityId);
+    }
+
+    // What `UpdateVisibility` would have left for this focus: published, and its mode.
+    data.mVisibilityMode = mode;
+    data.mVisibilityHidden = 1u;
+    // `Entity::Sync` clears it after the copy (0x0067A10B); the walk's value.
+    data.mRequestRefreshUI = requestRefreshUI ? 1u : 0u;
+  }
+
+  void CSessionEditCollector::Collect(
+    moho::CSimResources* const resources, const moho::CHeightField* const field, const std::span<const gpg::Rect2i> rects,
+    wire::CSessionTableWriters& session
+  )
   {
     // Resource deposits the sim added since the last beat go on the session record (the sim
     // only ever appends them).
-    if (mSession != nullptr && packet.mSimResources.px != nullptr) {
-      moho::CSimResources& resources = *packet.mSimResources.px;
-      boost::mutex::scoped_lock lock(resources.lock_);
-      for (std::size_t i = mSession->DepositCount(); i < resources.deposits_.size(); ++i) {
-        const moho::ResourceDeposit& source = resources.deposits_[i];
+    if (resources != nullptr) {
+      boost::mutex::scoped_lock lock(resources->lock_);
+      for (std::size_t i = session.DepositCount(); i < resources->deposits_.size(); ++i) {
+        const moho::ResourceDeposit& source = resources->deposits_[i];
         const wire::SDeposit deposit{
           static_cast<std::uint8_t>(source.depositType), source.footprintRect.x0, source.footprintRect.z0,
           source.footprintRect.x1, source.footprintRect.z1
         };
-        if (!mSession->Deposit(deposit)) {
+        if (!session.Deposit(deposit)) {
           ++mDepositOverflows;
           break;
         }
       }
     }
     // Terrain edits: each changed rectangle with the heights the sim's field now holds there.
-    if (mSession != nullptr) {
-      const moho::CHeightField* const field = packet.mTerrainUpdate.px;
-      if (field != nullptr && !mSentTerrain) {
-        // The heights as the client starts with them (SyncRebuilder.cpp: the first beat's).
-        mSentTerrain.reset(new moho::CHeightField(field->width - 1, field->height - 1));
-        std::copy_n(field->data, static_cast<std::size_t>(field->width) * static_cast<std::size_t>(field->height), mSentTerrain->data);
-      }
-      for (const gpg::Rect2i& rect : packet.mPlayableRectUpdates) {
-        wire::STerrainEdit edit{};
-        edit.dirty = {rect.x0, rect.z0, rect.x1, rect.z1};
-        edit.cells = {0, 0, -1, -1};
-        if (field != nullptr) {
-          const wire::SCellRect clipped{
-            std::max(rect.x0, 0), std::max(rect.z0, 0), std::min(rect.x1, field->width - 1),
-            std::min(rect.z1, field->height - 1)
-          };
-          if (clipped.x0 <= clipped.x1 && clipped.z0 <= clipped.z1) {
-            edit.cells = clipped;
-            edit.heights.reserve(
-              static_cast<std::size_t>(clipped.x1 - clipped.x0 + 1) * static_cast<std::size_t>(clipped.z1 - clipped.z0 + 1)
-            );
-            for (std::int32_t z = clipped.z0; z <= clipped.z1; ++z) {
-              const std::uint16_t* const row = field->data + static_cast<std::ptrdiff_t>(z) * field->width;
-              edit.heights.insert(edit.heights.end(), row + clipped.x0, row + clipped.x1 + 1);
-              std::copy(row + clipped.x0, row + clipped.x1 + 1,
-                        mSentTerrain->data + static_cast<std::ptrdiff_t>(z) * mSentTerrain->width + clipped.x0);
-            }
+    if (field != nullptr && !mSentTerrain) {
+      // The heights as the client starts with them (SyncRebuilder.cpp: the first beat's).
+      mSentTerrain.reset(new moho::CHeightField(field->width - 1, field->height - 1));
+      std::copy_n(field->data, static_cast<std::size_t>(field->width) * static_cast<std::size_t>(field->height), mSentTerrain->data);
+    }
+    for (const gpg::Rect2i& rect : rects) {
+      wire::STerrainEdit edit{};
+      edit.dirty = {rect.x0, rect.z0, rect.x1, rect.z1};
+      edit.cells = {0, 0, -1, -1};
+      if (field != nullptr) {
+        const wire::SCellRect clipped{
+          std::max(rect.x0, 0), std::max(rect.z0, 0), std::min(rect.x1, field->width - 1),
+          std::min(rect.z1, field->height - 1)
+        };
+        if (clipped.x0 <= clipped.x1 && clipped.z0 <= clipped.z1) {
+          edit.cells = clipped;
+          edit.heights.reserve(
+            static_cast<std::size_t>(clipped.x1 - clipped.x0 + 1) * static_cast<std::size_t>(clipped.z1 - clipped.z0 + 1)
+          );
+          for (std::int32_t z = clipped.z0; z <= clipped.z1; ++z) {
+            const std::uint16_t* const row = field->data + static_cast<std::ptrdiff_t>(z) * field->width;
+            edit.heights.insert(edit.heights.end(), row + clipped.x0, row + clipped.x1 + 1);
+            std::copy(row + clipped.x0, row + clipped.x1 + 1,
+                      mSentTerrain->data + static_cast<std::ptrdiff_t>(z) * mSentTerrain->width + clipped.x0);
           }
         }
-        if (!mSession->TerrainEdit(std::move(edit))) {
-          ++mTerrainEditOverflows;
-        }
       }
+      if (!session.TerrainEdit(std::move(edit))) {
+        ++mTerrainEditOverflows;
+      }
+    }
+  }
+
+  void CSharedUnitStats::ReadTree(Tree& tree, STree& state, wire::CSessionTableWriters& session)
+  {
+    thread_local std::vector<moho::StatItem*> items;
+    thread_local std::vector<wire::SUnitStat> stats;
+    moho::STAT_CollectItems(tree, items);
+    if (items != state.items) {
+      // New items (or a new tree): their paths, as `ReadUnitStats` names them.
+      state.items.clear();
+      state.names.clear();
+      moho::STAT_VisitItems(tree, [&](const fa::string& path, moho::StatItem& item) {
+        state.items.push_back(&item);
+        state.names.push_back(session.Name(path.c_str()));
+      });
+      if (state.items != items) {
+        state.items.clear(); // the tree changed between the two walks: read again next beat
+        state.names.clear();
+        stats.clear();
+        state.changed = state.value.Assign(stats);
+        return;
+      }
+    }
+    // `ReadUnitStats`' values, from the items read before.
+    stats.clear();
+    for (std::size_t i = 0; i < items.size() && stats.size() < wire::SUnitFields::kMaxStats; ++i) {
+      moho::StatItem& item = *items[i];
+      wire::SUnitStat stat{};
+      stat.name = state.names[i];
+      stat.type = static_cast<std::uint8_t>(static_cast<std::uint32_t>(item.mType) & 3u);
+      stat.realtime = item.mUseRealtimeSlot == 1;
+      if (stat.type == wire::SUnitStat::kString) {
+        fa::string value;
+        (void)item.GetString(stat.realtime, &value);
+        stat.text = session.Name(value.c_str());
+      } else {
+        stat.bits = static_cast<std::uint32_t>(stat.realtime ? item.mRealtimeValueBits : item.mPrimaryValueBits);
+      }
+      stats.push_back(stat);
+    }
+    std::sort(stats.begin(), stats.end(), [](const wire::SUnitStat& a, const wire::SUnitStat& b) { return a.name < b.name; });
+    state.changed = state.value.Assign(stats);
+  }
+
+  void CSharedUnitStats::Attach(SUnit& unit)
+  {
+    moho::Unit* const asUnit = unit.entity->IsUnit();
+    if (asUnit == nullptr || !asUnit->mConstDat.mStatsRoot) {
+      return;
+    }
+    unit.tree = asUnit->mConstDat.mStatsRoot.get();
+    unit.state = std::make_unique<STree>();
+    mByTree[unit.tree] = unit.state.get();
+  }
+
+  void CSharedUnitStats::Forget(SUnit& unit)
+  {
+    if (unit.tree != nullptr) {
+      if (const auto found = mByTree.find(unit.tree); found != mByTree.end() && found->second == unit.state.get()) {
+        mByTree.erase(found);
+      }
+    }
+  }
+
+  void CSharedUnitStats::Refresh(
+    const std::span<const std::uint32_t> ids, const std::span<moho::Entity* const> entities, wire::CSessionTableWriters& session,
+    const bool parallel
+  )
+  {
+    // Last beat's units merged with this beat's, both by id: only a new unit is read from the sim.
+    mNextUnits.clear();
+    mNextUnits.reserve(ids.size());
+    std::size_t old = 0;
+    for (std::size_t i = 0; i < ids.size(); ++i) {
+      while (old < mUnits.size() && mUnits[old].id < ids[i]) {
+        Forget(mUnits[old++]);
+      }
+      if (old < mUnits.size() && mUnits[old].id == ids[i]) {
+        if (mUnits[old].entity == entities[i]) {
+          mNextUnits.push_back(std::move(mUnits[old++]));
+          if (mNextUnits.back().tree == nullptr) {
+            Attach(mNextUnits.back());
+          }
+          continue;
+        }
+        Forget(mUnits[old++]); // the id is another entity's now
+      }
+      SUnit unit;
+      unit.id = ids[i];
+      unit.entity = entities[i];
+      Attach(unit);
+      mNextUnits.push_back(std::move(unit));
+    }
+    while (old < mUnits.size()) {
+      Forget(mUnits[old++]);
+    }
+    mUnits.swap(mNextUnits);
+
+    mWork.clear();
+    mWorkTrees.clear();
+    const std::uint32_t beat = mBeat++;
+    for (SUnit& unit : mUnits) {
+      if (unit.tree == nullptr) {
+        continue;
+      }
+      STree& state = *unit.state;
+      state.changed = false;
+      // A tree's share: its address, mixed, spreads the trees evenly over the beats.
+      const auto phase = static_cast<std::uint32_t>((static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(unit.tree)) * 0x9E3779B97F4A7C15ull) >> 40u);
+      if (state.fresh || mReadEvery <= 1u || (phase + beat) % mReadEvery == 0u) {
+        state.fresh = false;
+        mWork.push_back(&state);
+        mWorkTrees.push_back(unit.tree);
+      }
+    }
+    const auto read = [&](const std::size_t begin, const std::size_t end) {
+      for (std::size_t i = begin; i < end; ++i) {
+        ReadTree(*mWorkTrees[i], *mWork[i], session);
+      }
+    };
+    constexpr std::size_t kGrain = 64;
+    if (parallel && mWork.size() > kGrain) {
+      moho::CSimWorkerPool::Get().ParallelFor(mWork.size(), kGrain, read);
+    } else {
+      read(0u, mWork.size());
+    }
+    // The changed ones, for the views.
+    mChanged.clear();
+    for (std::size_t i = 0; i < mWork.size(); ++i) {
+      if (mWork[i]->changed) {
+        mChanged.push_back(mWorkTrees[i]);
+      }
+    }
+  }
+
+  void CViewFrameBuilder::Apply(const moho::SSyncData& packet, const std::span<const SDirectUpdate> direct)
+  {
+    mUnderlays.Refresh();
+
+    if (mSession != nullptr && mCollectEdits) {
+      mEdits.Collect(
+        packet.mSimResources.px, packet.mTerrainUpdate.px,
+        std::span<const gpg::Rect2i>(packet.mPlayableRectUpdates.data(), packet.mPlayableRectUpdates.size()), *mSession
+      );
     }
 
     // Orphaned records whose window has passed leave the frame (as a delete would; the
@@ -371,8 +965,8 @@ namespace faf::remote
     const auto beat = static_cast<std::uint32_t>(packet.mCurBeat);
     for (auto it = mOrphanedAt.begin(); it != mOrphanedAt.end();) {
       if (beat - it->second >= mOrphanBeats) {
-        mWorld.erase(it->first);
-        mUnitStats.erase(it->first);
+        EraseRecord(it->first);
+        DropStats(it->first);
         it = mOrphanedAt.erase(it);
       } else {
         ++it;
@@ -391,7 +985,7 @@ namespace faf::remote
         }
       }
       mOrphanedAt.erase(record.id); // an id the sim reuses is a new entity
-      return mWorld[record.id] = record;
+      return PutRecord(record);
     };
     for (const moho::SCreateEntityParams& params : packet.mNewEntities) {
       (void)create(params);
@@ -401,59 +995,153 @@ namespace faf::remote
       record.isUnit = true;
       record.unit.buildStateTag = params.mConstDat.mBuildStateTag;
       record.unit.fake = params.mConstDat.mFake;
+      DropStats(record.id);
       if (params.mConstDat.mStatsRoot) {
         mUnitStats[record.id] = params.mConstDat.mStatsRoot;
-      } else {
-        mUnitStats.erase(record.id);
+        if (mSharedStats != nullptr) {
+          mStatsIds.emplace(params.mConstDat.mStatsRoot.get(), record.id);
+          mFreshStats.push_back(record.id);
+        }
       }
     }
     for (const moho::SEntityVariableUpdateEntry& update : packet.mEntityUpdates) {
-      const auto it = mWorld.find(static_cast<std::uint32_t>(update.mEntityId));
-      if (it != mWorld.end()) {
-        ApplyVariableData(it->second, update.mVariableData, mCodec, mTables, mSession, mUnknownUnderlays);
+      if (wire::SEntityRecord* const record = FindRecord(static_cast<std::uint32_t>(update.mEntityId)); record != nullptr) {
+        ApplyVariableData(*record, update.mVariableData, mCodec, mTables, mSession, mUnderlays, mUnknownUnderlays);
+        if (mTrackChanges) {
+          mTouchedIds.push_back(record->id);
+        }
       }
     }
     for (const moho::SUnitVariableUpdateEntry& update : packet.mUnitUpdates) {
-      const auto it = mWorld.find(static_cast<std::uint32_t>(update.mEntityId));
-      if (it != mWorld.end() && it->second.isUnit) {
-        ApplyUnitData(it->second.unit, update.mVariableData);
+      wire::SEntityRecord* const record = FindRecord(static_cast<std::uint32_t>(update.mEntityId));
+      if (record != nullptr && record->isUnit) {
+        ApplyUnitData(record->unit, update.mVariableData);
         // Built aside and kept shared with the frames before unless it changed.
         ApplyUnitDetail(mDetailScratch, update.mVariableData, update.mReconFlags, mTables, mSession);
-        it->second.unit.detail.Assign(mDetailScratch);
+        (void)record->unit.detail.Assign(mDetailScratch);
+        if (mTrackChanges) {
+          mTouchedIds.push_back(record->id);
+        }
+      }
+    }
+    std::size_t cursor = 0;
+    for (const SDirectUpdate& update : direct) {
+      const SDirectUpdate::STarget& target = *update.target;
+      if (target.shared != nullptr) {
+        ApplySharedUpdate(update, cursor);
+        continue;
+      }
+      moho::Entity& entity = *target.entity;
+      const auto id = static_cast<std::uint32_t>(entity.id_);
+      cursor = SeekWorld(cursor, id);
+      if (cursor == mWorldIndex.size() || mWorldIndex[cursor].id != id) {
+        continue;
+      }
+      const std::uint32_t slot = mWorldIndex[cursor].slot;
+      // A shared blip record names what the views' shared session has (`CSharedEntityRecords::SetSessionTables`).
+      const SBlipRecord* const blipRecord = update.blipRecord;
+      SaveBefore(slot);
+      wire::SEntityRecord* const record = &LocalRecord(slot);
+      if (blipRecord != nullptr) {
+        CopyBlipRecord(*record, blipRecord->record);
+        if (record->isUnit) {
+          (void)record->unit.detail.Assign(blipRecord->detail);
+        }
+        if (mTrackChanges) {
+          mTouchedIds.push_back(record->id);
+        }
+        continue;
+      }
+      CopyEntityBlockReadByBuilder(mBlockScratch, entity.mVarDat);
+      WriteEntityBlockForView(mBlockScratch, entity, update.Mode(), target.requestRefreshUI);
+      const moho::SSTIUnitVariableData* unitData = nullptr;
+      std::int32_t reconFlags = kUnitReconFlags;
+      const moho::Unit* creator = nullptr;
+      if (target.unit != nullptr) {
+        unitData = &target.unit->VarDat();
+      } else if (target.blip != nullptr) {
+        const moho::SPerArmyReconInfo& recon = target.blip->mReconDat[update.army];
+        creator = target.blip->mCreator.GetObjectPtr();
+        unitData = &target.blip->mUnitVarDat;
+        reconFlags = static_cast<std::int32_t>(recon.mReconFlags);
+        WriteReconBlock(mBlockScratch, recon, update.vision, update.hasVision);
+      }
+      ApplyVariableData(*record, mBlockScratch, mCodec, mTables, mSession, mUnderlays, mUnknownUnderlays);
+      if (unitData != nullptr && record->isUnit) {
+        ApplyUnitData(record->unit, *unitData);
+        ApplyUnitDetail(mDetailScratch, *unitData, reconFlags, mTables, mSession);
+        if (creator != nullptr) {
+          mDetailScratch.stunTicks = creator->mUnitVarDat.mStunTicks != 0 ? 1 : 0;
+        }
+        (void)record->unit.detail.Assign(mDetailScratch);
+      }
+      if (mTrackChanges) {
+        mTouchedIds.push_back(record->id);
       }
     }
     for (const moho::EntId id : packet.mEraseIds) {
-      const auto it = mWorld.find(static_cast<std::uint32_t>(id));
-      if (it != mWorld.end()) {
-        it->second.flags |= kEntityFlagOrphaned;
-        mOrphanedAt.emplace(it->first, beat);
+      if (wire::SEntityRecord* const record = FindRecord(static_cast<std::uint32_t>(id)); record != nullptr) {
+        record->flags |= kEntityFlagOrphaned;
+        mOrphanedAt.emplace(record->id, beat);
+        if (mTrackChanges) {
+          mTouchedIds.push_back(record->id);
+        }
       }
     }
     for (const moho::EntId id : packet.mDeleteIds) {
-      mWorld.erase(static_cast<std::uint32_t>(id));
-      mUnitStats.erase(static_cast<std::uint32_t>(id));
+      EraseRecord(static_cast<std::uint32_t>(id));
+      DropStats(static_cast<std::uint32_t>(id));
       mOrphanedAt.erase(static_cast<std::uint32_t>(id));
     }
   }
 
-  wire::SViewFrame CViewFrameBuilder::Build(const std::uint32_t beat)
+  wire::SViewFrame CViewFrameBuilder::StartFrame(const std::uint32_t beat)
   {
     wire::SViewFrame frame{};
     frame.frameId = mNextFrameId++;
     frame.beat = beat;
     // Unit stats are live in the sim (the lockstep UI reads them from the sim's own tree), so
     // every unit's tree is read again for each frame.
-    if (mSession != nullptr) {
-      for (const auto& [id, stats] : mUnitStats) {
-        if (const auto it = mWorld.find(id); it != mWorld.end()) {
-          ReadUnitStats(*stats, *mSession, mStatsScratch);
-          it->second.unit.stats.Assign(mStatsScratch);
+    if (mSession != nullptr && mSharedStats != nullptr) {
+      // Read once a beat for every view: a record's stats change when it is new or its tree's stats changed. A tree
+      // no longer read (a dead unit's, held by its blip) keeps its last stats, as a dead unit's don't change.
+      const auto apply = [this](const std::uint32_t id, moho::Stats<moho::StatItem>& tree) {
+        wire::SEntityRecord* const record = FindRecord(id);
+        if (record == nullptr) {
+          return;
+        }
+        bool changed;
+        if (const CSharedUnitStats::SStats* const shared = mSharedStats->Find(&tree); shared != nullptr) {
+          changed = record->unit.stats.Share(*shared);
+        } else {
+          ReadUnitStats(tree, *mSession, mStatsScratch);
+          changed = record->unit.stats.Assign(mStatsScratch);
+        }
+        if (changed && mTrackChanges) {
+          mTouchedIds.push_back(id);
+        }
+      };
+      for (const std::uint32_t id : mFreshStats) {
+        if (const auto found = mUnitStats.find(id); found != mUnitStats.end()) {
+          apply(id, *found->second);
         }
       }
-    }
-    frame.entities.reserve(mWorld.size());
-    for (const auto& [id, record] : mWorld) {
-      frame.entities.push_back(record);
+      mFreshStats.clear();
+      for (const CSharedUnitStats::Tree* const tree : mSharedStats->Changed()) {
+        auto [first, last] = mStatsIds.equal_range(tree);
+        for (; first != last; ++first) {
+          apply(first->second, *const_cast<CSharedUnitStats::Tree*>(tree));
+        }
+      }
+    } else if (mSession != nullptr) {
+      for (const auto& [id, stats] : mUnitStats) {
+        if (wire::SEntityRecord* const record = FindRecord(id); record != nullptr) {
+          ReadUnitStats(*stats, *mSession, mStatsScratch);
+          if (record->unit.stats.Assign(mStatsScratch) && mTrackChanges) {
+            mTouchedIds.push_back(id);
+          }
+        }
+      }
     }
     return frame;
   }

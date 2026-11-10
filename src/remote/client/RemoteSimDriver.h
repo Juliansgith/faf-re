@@ -60,7 +60,7 @@ namespace faf::remote::client
     HANDLE GetSyncDataAvailableEvent() override;
     double GetSimSpeed() override;
     void SetArmyIndex(int armyIndex) override;
-    void SetGeomCams(const msvc8::vector<moho::GeomCamera3>& geoCams) override;
+    void SetGeomCams(const fa::vector<moho::GeomCamera3>& geoCams) override;
     void SetSyncFilterMaskA(const moho::SSyncFilterMaskBlock& block) override;
     void SetSyncFilterMaskB(const moho::SSyncFilterMaskBlock& block) override;
     void SetSyncFilterOptionFlag(bool value) override;
@@ -97,7 +97,7 @@ namespace faf::remote::client
     ) override;
     moho::Sim* ProcessEvents() override;
     void ReleaseInterlockRef() override;
-    void RequestSaveGame(moho::CSaveGameRequestImpl* request) override;
+    void RequestSaveGame(moho::ISaveRequest* request) override;
     void DrawNetworkStats(moho::CD3DPrimBatcher* batcher, float anchorX, float anchorY, float scaleX, float scaleY)
       override;
 
@@ -117,7 +117,7 @@ namespace faf::remote::client
     // The command path (WP11.1): marshaller -> client manager -> the server's decoder -> intake.
     CLoopbackCommandIntake mIntake;
     std::unique_ptr<LuaPlus::LuaState> mCommandLua; // decodes the Lua payloads on the server end
-    msvc8::auto_ptr<gpg::Stream> mNoRecording;
+    fa::auto_ptr<gpg::Stream> mNoRecording;
     moho::CDecoder mServerDecoder;
     CRemoteClientManager mClientManager;
     moho::CMarshaller mMarshaller;
@@ -129,7 +129,7 @@ namespace faf::remote::client
     SLoopbackOptions mOptions;
     std::uint64_t mArmyRequests = 0;
     std::uint64_t mArmyRefusals = 0;
-    msvc8::vector<moho::GeomCamera3> mPendingCams;
+    fa::vector<moho::GeomCamera3> mPendingCams;
     bool mHavePendingCams = false;
     std::chrono::steady_clock::time_point mLastCamsSent{};
     std::uint64_t mCamsReceived = 0;

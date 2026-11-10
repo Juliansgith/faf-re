@@ -25,19 +25,50 @@ A PR that ticks "Sim behaviour changes" or "Not sure", or that adds a sim consol
 
 UI, rendering, audio and movies are not in the sim and can change freely, but a change to what the original game did should say so (the reviewer adds `retail divergence`).
 
+## Features that need other players on our engine
+
+A feature that only works when other players run our engine asks one shared announcement. Don't add another way to detect our builds, or a new message type: [docs/PEER_FEATURES.md](docs/PEER_FEATURES.md) says how to add it.
+
 ## Working on recovered code
 
 Every engine function in `src/` was rebuilt from the original binary, and its behaviour is the reference.
 
 - Keep the `Address: 0x...` comment block above a recovered function, in the header and the `.cpp`. It is how anyone checks the code against the binary.
 - When you fix a function to match the binary, cite the instructions you read (`0x008581BB: ...`) in the comment or the PR.
-- Binary-facing layouts stay on the legacy types (`msvc8::vector`, `msvc8::string`, `gpg::` containers): they match the 2007 memory layout. Keep the `static_assert(sizeof(...))` checks.
+- Recovered layouts stay on the legacy types (`fa::vector`, `fa::string`, `gpg::` containers). The game's builds drop the unused word the binary keeps at the start of each container, so the `static_assert(sizeof(...))` checks and `+0x..` comments describe the binary, and the `clang-x86-retail-layout` preset is what checks them (the `Layout check` workflow compiles it on every change to the engine). Keep them, and build that preset when you change a layout.
 - Use named fields and real virtual calls, not pointer arithmetic or offsets (`*(int*)(p + 0x78)`).
 - No stub or placeholder functions.
 
+## Writing tests
+
+Use **GoogleTest (GTest)** for all unit and integration tests. Do not roll custom or ad-hoc test harnesses (such as custom `Check` loops, hand-rolled `gFailures` counters, or manual `main()` runners).
+
+- **Standard assertions and fixtures**: Use standard GTest macros (`TEST`, `TEST_F`, `EXPECT_TRUE`, `EXPECT_EQ`, `ASSERT_TRUE`, etc.). They provide structured output, accurate failure source locations, and automatic failure propagation.
+- **Entry point**: Link against `gtest_main` whenever the test executable does not require special command-line handling. If custom CLI arguments are required (e.g. data file paths or flags), call `::testing::InitGoogleTest(&argc, argv)` and return `RUN_ALL_TESTS()` from `main()`.
+- **CMake & CTest integration**:
+  - Link test executables against `gtest` or `gtest_main` (`target_link_libraries(<target> PRIVATE ... gtest_main)`).
+  - Register the executable with `add_test(NAME <name> COMMAND <target>)`.
+  - Set IDE grouping: `set_target_properties(<target> PROPERTIES FOLDER "Tests/<Subgroup>")`.
+  - Label tests for CTest selection: `set_tests_properties(<name> PROPERTIES LABELS "<Label>")`.
+  - The `faf_tests` target builds every executable of the engine build that links `gtest` or `gtest_main` ([cmake/FafTests.cmake](cmake/FafTests.cmake)), so a new test needs no list entry. Standalone test projects such as `tests/particles/upload_host` are built on their own.
+- **Existing tests group**: All existing test suites converted from custom harnesses belong to the `Existing` group (suite names prefixed with `Existing_`, CTest label `Existing`, CMake folder `Tests/Existing`, and grouped under the `existing_tests` custom build target). New tests should define clear suite names for their module without the `Existing_` prefix.
+- **Running tests**:
+  ```powershell
+  # Build and run every test
+  cmake --build --preset clang-x64-release --target faf_tests
+  ctest --test-dir build/clang-x64-release --output-on-failure
+
+  # Only the existing group
+  ctest --test-dir build/clang-x64-release -L Existing --output-on-failure
+
+  # Run a specific test executable with filter
+  .\build\clang-x64-release\tests\faf_net_tests.exe --gtest_filter=Existing_NetRobustness.LuaValidValues
+  ```
+- **Coverage**: the `clang-x64-release-coverage` preset (Linux: `linux-clang-x64-release-coverage`) builds with llvm-cov counters ([cmake/FafCoverage.cmake](cmake/FafCoverage.cmake)). `tools/coverage/report.sh <build folder>` runs ctest and writes a per-file and per-folder line coverage report of `src/` to `tmp/coverage/`.
+
 ## Commits and pull request titles
 
-Commit titles and PR titles follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). A CI check (`Commit titles`) checks the PR title and every commit in the PR. When a PR is squash-merged its title becomes the commit title, so the title matters most.
+Commit titles and PR titles follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). PRs are squash-merged and the PR's title becomes the commit title, so a CI check (`Commit titles`) checks that title and leaves the titles of a PR's commits free. A PR with one commit is the exception: the merge uses that commit's title, so it is checked too. Every commit on `master` is checked, and no commit in a PR may carry an AI or bot attribution line, because a squash copies commit messages into the merged one.
 
 ```
 <type>(<scope>): <what is true after this change>
@@ -64,7 +95,7 @@ Rules the check enforces:
 - A `!` after the scope marks a breaking change, e.g. a changed save or replay format: `feat(replay)!: ...`.
 - In a commit message, a blank line separates the title from the body.
 - No AI or bot `Co-authored-by:` lines and no "Generated with ..." lines. Commits are authored by the people who submit them.
-- `fixup!` and `squash!` commits are squashed before you push. Merge commits and git's own `Revert "..."` titles are accepted as they are.
+- A `fixup!` or `squash!` title is refused wherever a title is checked. Merge commits and git's own `Revert "..."` titles are accepted as they are.
 
 Write the title as what is now true, not as an instruction, and put the issue number at the end:
 

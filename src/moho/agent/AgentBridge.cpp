@@ -70,7 +70,7 @@ namespace moho
       int checksumPeriod = 0; // /agentchecksum: sim_ChecksumPeriod for the session (0: the sim's own, 50)
     };
 
-    int ParseIntArgument(const msvc8::string& text, const int fallback)
+    int ParseIntArgument(const fa::string& text, const int fallback)
     {
       const char* const begin = text.c_str();
       const char* const end = begin + std::strlen(begin);
@@ -90,7 +90,7 @@ namespace moho
     AgentBridgeConfig ParseConfig()
     {
       AgentBridgeConfig config{};
-      msvc8::vector<msvc8::string> args;
+      fa::vector<fa::string> args;
       if (!CFG_GetArgOption("/agentbridge", 1, &args) || args.empty()) {
         return config;
       }
@@ -1108,7 +1108,7 @@ namespace moho
         message.push_back('[');
         AppendJsonNumber(message, static_cast<double>(b));
         message.push_back(',');
-        const msvc8::string text = digest.ToString();
+        const fa::string text = digest.ToString();
         AppendJsonString(message, text.c_str(), std::strlen(text.c_str()));
         message.push_back(']');
       }
@@ -1356,7 +1356,7 @@ namespace moho
     {
       PoisonStarter()
       {
-        msvc8::vector<msvc8::string> args;
+        fa::vector<fa::string> args;
         if (CFG_GetArgOption("/agentpoison", 1, &args) && !args.empty()) {
           gPoisonByte = ParseIntArgument(args[0], 0) & 0xFF;
           if (CFG_GetArgOption("/agentpoisonsizes", 2, &args) && args.size() >= 2) {

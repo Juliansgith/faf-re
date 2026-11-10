@@ -27,7 +27,7 @@ extern "C" int __cdecl SetSse2Mode(const int enableSse2)
   return mode;
 }
 
-namespace msvc8
+namespace fa
 {
   namespace
   {
@@ -41,6 +41,31 @@ namespace msvc8
   {
     // cvtss2si: round to nearest even under the default MXCSR, 0x80000000 for NaN/out of range (as fistp)
     return _mm_cvtss_si32(_mm_set_ss(value));
+  }
+
+  std::int32_t FloorToIntX87(const float value) noexcept
+  {
+    if (value != value) {
+      return 0x7FFFFFFF; // a NaN floors to 0x7FFFFFFF (the -1 is added to fistp's 0x80000000)
+    }
+    // cvtss2si of floor: 0x80000000 outside the int range, as fistp
+    return _mm_cvtss_si32(_mm_set_ss(std::floor(value)));
+  }
+
+  std::int32_t CeilToIntX87(const float value) noexcept
+  {
+    // a NaN adds nothing and stays the integer indefinite 0x80000000, as does out of range
+    return _mm_cvtss_si32(_mm_set_ss(std::ceil(value)));
+  }
+
+  float TwisterWordInRange(const float lower, const float upper, const std::uint32_t twisterWord) noexcept
+  {
+    // lower + (upper - lower) * word * 2^-32 in double, rounded to float once
+    constexpr double kInvTwoTo32 = 2.3283064365386962890625e-10;
+    return static_cast<float>(
+      static_cast<double>(twisterWord) * (static_cast<double>(upper) - static_cast<double>(lower)) * kInvTwoTo32
+      + static_cast<double>(lower)
+    );
   }
 
   void ScaleVectorByMaxLengthX87(float& x, float& y, float& z, const float maxLength) noexcept
@@ -270,6 +295,6 @@ namespace msvc8
     const float x = lanes[0], y = lanes[1], z = lanes[2];
     return std::sqrt((z * z + y * y) + x * x);
   }
-} // namespace msvc8
+} // namespace fa
 
 #endif // FAF_ULTRA_FP

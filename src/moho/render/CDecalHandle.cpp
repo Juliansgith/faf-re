@@ -1,5 +1,4 @@
 #include "moho/render/CDecalHandle.h"
-#include "moho/render/CDecalBuffer.h"
 
 #include <Windows.h>
 
@@ -28,26 +27,6 @@ namespace moho
       if (type == nullptr) {
         type = gpg::LookupRType(typeid(CDecalHandle));
         CDecalHandle::sType = type;
-      }
-      return type;
-    }
-
-    [[nodiscard]] gpg::RType* CachedCScriptObjectType()
-    {
-      gpg::RType* type = CScriptObject::sType;
-      if (type == nullptr) {
-        type = gpg::LookupRType(typeid(CScriptObject));
-        CScriptObject::sType = type;
-      }
-      return type;
-    }
-
-    [[nodiscard]] gpg::RType* CachedSDecalInfoType()
-    {
-      gpg::RType* type = SDecalInfo::sType;
-      if (type == nullptr) {
-        type = gpg::LookupRType(typeid(SDecalInfo));
-        SDecalInfo::sType = type;
       }
       return type;
     }
@@ -234,10 +213,10 @@ namespace moho
   void CDecalHandle::MemberDeserialize(gpg::ReadArchive* const archive)
   {
     const gpg::RRef baseOwnerRef{};
-    archive->Read(CachedCScriptObjectType(), static_cast<CScriptObject*>(this), baseOwnerRef);
+    archive->Read(gpg::RTypeOf<CScriptObject>(), static_cast<CScriptObject*>(this), baseOwnerRef);
 
     const gpg::RRef decalOwnerRef{};
-    archive->Read(CachedSDecalInfoType(), &mInfo, decalOwnerRef);
+    archive->Read(gpg::RTypeOf<SDecalInfo>(), &mInfo, decalOwnerRef);
 
     archive->ReadUInt(&mArmyVisibilityFlags);
 
@@ -256,10 +235,10 @@ namespace moho
   void CDecalHandle::MemberSerialize(gpg::WriteArchive* const archive) const
   {
     const gpg::RRef baseOwnerRef{};
-    archive->Write(CachedCScriptObjectType(), static_cast<const CScriptObject*>(this), baseOwnerRef);
+    archive->Write(gpg::RTypeOf<CScriptObject>(), static_cast<const CScriptObject*>(this), baseOwnerRef);
 
     const gpg::RRef decalOwnerRef{};
-    archive->Write(CachedSDecalInfoType(), &mInfo, decalOwnerRef);
+    archive->Write(gpg::RTypeOf<SDecalInfo>(), &mInfo, decalOwnerRef);
 
     archive->WriteUInt(mArmyVisibilityFlags);
     archive->WriteInt(static_cast<int>(mCreatedAtTick));
@@ -278,20 +257,14 @@ namespace moho
    */
   gpg::RRef CDecalHandle::GetDerivedObjectRef()
   {
-    gpg::RRef out{};
-    out.mObj = this;
-    out.mType = GetClass();
-    return out;
+    return gpg::MakeSelfRef(this);
   }
 
   /**
    * Address: 0x00778B40 (FUN_00778B40, Moho::CDecalHandle::dtr)
    * Address: 0x00778C10 (FUN_00778C10, Moho::CDecalHandle::~CDecalHandle body)
    */
-  CDecalHandle::~CDecalHandle()
-  {
-    DECAL_ForgetHandle(this); // engine addition, sim_DecalBuckets
-  }
+  CDecalHandle::~CDecalHandle() = default;
 
   CDecalHandle* CDecalHandle::FromListNode(CDecalHandleListNode* const node) noexcept
   {
