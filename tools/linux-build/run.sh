@@ -15,6 +15,9 @@
 # /fafinit/bin/init_faf.lua is FAF's own init file next to a fa_path.lua naming those paths, so a
 # program takes `/init /fafinit/bin/init_faf.lua` exactly as the Windows build takes FAF's.
 # Extra docker options (e.g. --network host for the agent bridge): FAF_LINUX_DOCKER_ARGS.
+# FAF_LINUX_BIN: the programs' folder, mounted at /bin-linux (default build/linux-x64; the release
+# build's is build/linux-x64-release). FAF_LINUX_RUN_IMAGE: the image to run in (default the parity
+# image, faf-linux-build:24.04; e.g. plain ubuntu:22.04 or debian:12 to try the release build there).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,9 +42,9 @@ cp "$faf/bin/init_faf.lua" "$run/fafinit/bin/init_faf.lua"
 # MSYS (Git Bash) would rewrite the container paths below into Windows ones.
 MSYS_NO_PATHCONV=1 docker run --rm ${FAF_LINUX_DOCKER_ARGS:-} \
   -v "$fa:/fa:ro" -v "$vault:/vault:ro" \
-  -v "$root/build/linux-x64:/bin-linux:ro" \
+  -v "${FAF_LINUX_BIN:-$root/build/linux-x64}:/bin-linux:ro" \
   -v "$run:/run-dir" \
   -v "$run/fafinit:/fafinit" -v "$faf/gamedata:/fafinit/gamedata:ro" \
   -w /run-dir \
-  faf-linux-build:24.04 \
+  "${FAF_LINUX_RUN_IMAGE:-faf-linux-build:24.04}" \
   bash -c 'case "$0" in /*) exec "$0" "$@" ;; *) exec "/bin-linux/$0" "$@" ;; esac' "$program" "$@"

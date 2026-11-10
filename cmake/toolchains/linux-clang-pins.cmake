@@ -31,8 +31,39 @@
 #
 # A container image built from these pins is plan WP1.6.
 
-set(FAF_LINUX_PINNED_CLANG_VERSION "18.1.3")
-set(FAF_LINUX_PINNED_CLANG_PACKAGE "1:18.1.3-1ubuntu1")
-set(FAF_LINUX_PINNED_LIBCXX_PACKAGE "1:18.1.3-1ubuntu1")
-set(FAF_LINUX_PINNED_GLIBC_VERSION "2.39")
-set(FAF_LINUX_PINNED_LLVM_ROOT "/usr/lib/llvm-18")
+#
+# The release set (faf-neural-ai): the downloadable Linux client is built for
+# older distributions (glibc 2.34 and up: Ubuntu 22.04, Debian 12, RHEL 9) in
+# tools/linux-build/Dockerfile.release, selected with FAF_LINUX_PINS=release
+# (the linux-clang-x64-release-portable preset):
+#
+#   Ubuntu 22.04 (ubuntu:22.04 image), LLVM's packages (apt.llvm.org, llvm-toolchain-jammy-18):
+#   clang-18, lld-18, llvm-18, libc++-18-dev, libc++abi-18-dev
+#                      1:18.1.8~++20240731024944+3b5b5c1ec4a3-1~exp1~20240731145000.144
+#   libc6-dev          2.35-0ubuntu3.x      glibc 2.35
+#   cmake              3.28.3 (Kitware's release build)
+#
+# Its simulation results were compared with the Windows build's on the replay
+# corpus (every beat of ten FAF replays, docs/LINUX_CLIENT.md); a compiler
+# change in either set needs that comparison again.
+
+# FAF_LINUX_PINS (a -D setting or the preset's cache variable): parity (default) or release.
+if(NOT FAF_LINUX_PINS)
+  set(FAF_LINUX_PINS "parity")
+endif()
+
+if(FAF_LINUX_PINS STREQUAL "release")
+  set(FAF_LINUX_PINNED_CLANG_VERSION "18.1.8")
+  set(FAF_LINUX_PINNED_CLANG_PACKAGE "1:18.1.8~++20240731024944+3b5b5c1ec4a3-1~exp1~20240731145000.144")
+  set(FAF_LINUX_PINNED_LIBCXX_PACKAGE "1:18.1.8~++20240731024944+3b5b5c1ec4a3-1~exp1~20240731145000.144")
+  set(FAF_LINUX_PINNED_GLIBC_VERSION "2.35")
+  set(FAF_LINUX_PINNED_LLVM_ROOT "/usr/lib/llvm-18")
+elseif(FAF_LINUX_PINS STREQUAL "parity")
+  set(FAF_LINUX_PINNED_CLANG_VERSION "18.1.3")
+  set(FAF_LINUX_PINNED_CLANG_PACKAGE "1:18.1.3-1ubuntu1")
+  set(FAF_LINUX_PINNED_LIBCXX_PACKAGE "1:18.1.3-1ubuntu1")
+  set(FAF_LINUX_PINNED_GLIBC_VERSION "2.39")
+  set(FAF_LINUX_PINNED_LLVM_ROOT "/usr/lib/llvm-18")
+else()
+  message(FATAL_ERROR "FAF_LINUX_PINS=${FAF_LINUX_PINS}: expected parity or release")
+endif()

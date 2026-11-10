@@ -12,6 +12,10 @@
 #                                     (linux-clang-pins.cmake).
 #   FAF_LINUX_ALLOW_UNPINNED_TOOLCHAIN  ON: accept a clang or glibc other than
 #                                     the pinned release (not a parity build).
+#   FAF_LINUX_PINS                    parity (default): the simulation's
+#                                     reference toolchain; release: the
+#                                     portable client's (glibc 2.34 and up,
+#                                     tools/linux-build/Dockerfile.release).
 #
 # Code generation (what the simulation's results depend on) is in
 # cmake/FafCodegen.cmake, shared with the Windows toolchains. Here: the tools,
@@ -22,7 +26,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/linux-clang-pins.cmake")
 set(FAF_LINUX ON)
 
 # try_compile projects re-read this file; pass the settings on.
-list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES FAF_LINUX_LLVM_ROOT FAF_LINUX_ALLOW_UNPINNED_TOOLCHAIN)
+list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES FAF_LINUX_LLVM_ROOT FAF_LINUX_ALLOW_UNPINNED_TOOLCHAIN FAF_LINUX_PINS)
 
 if(NOT FAF_LINUX_LLVM_ROOT)
   set(FAF_LINUX_LLVM_ROOT "${FAF_LINUX_PINNED_LLVM_ROOT}")

@@ -10,10 +10,23 @@
 # the extra cache settings (default -DFAF_ULTRA=ON, the exact-results speed codegen the Windows
 # training build uses too).
 #
+# FAF_LINUX_IMAGE=release builds in the release image instead (tools/linux-build/Dockerfile.release:
+# Ubuntu 22.04, LLVM's clang 18.1.8, glibc 2.34 and up at run time) with the
+# linux-clang-x64-release-portable preset, into build/linux-x64-release/ by default: the downloadable
+# client (tools/linux-build/package.sh). It has its own volume (FAF_LINUX_VOLUME, default
+# faf-linux-release); the parity image's build tree is not reusable there. FAF_LINUX_OUT overrides
+# the output folder.
+#
 # Inside the container (FAF_LINUX_BUILD_INNER=1) the same script does the copy and the build.
 set -euo pipefail
 
-preset="${FAF_LINUX_PRESET:-linux-clang-x64-release-plain}"
+image_kind="${FAF_LINUX_IMAGE:-parity}"
+case "$image_kind" in
+  parity) default_preset=linux-clang-x64-release-plain ;;
+  release) default_preset=linux-clang-x64-release-portable ;;
+  *) echo "FAF_LINUX_IMAGE=$image_kind: expected parity or release" >&2; exit 2 ;;
+esac
+preset="${FAF_LINUX_PRESET:-$default_preset}"
 cmake_args="${FAF_LINUX_CMAKE_ARGS:--DFAF_ULTRA=ON}"
 targets=("$@")
 if [ ${#targets[@]} -eq 0 ]; then
@@ -51,16 +64,26 @@ fi
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
-image="faf-linux-build:24.04"
-if ! docker image inspect "$image" >/dev/null 2>&1; then
-  docker build -t "$image" "$here"
+if [ "$image_kind" = "release" ]; then
+  image="faf-linux-build:22.04-release"
+  dockerfile="$here/Dockerfile.release"
+  volume="${FAF_LINUX_VOLUME:-faf-linux-release}"
+  out="${FAF_LINUX_OUT:-$root/build/linux-x64-release}"
+else
+  image="faf-linux-build:24.04"
+  dockerfile="$here/Dockerfile"
+  volume="${FAF_LINUX_VOLUME:-faf-linux-work}"
+  out="${FAF_LINUX_OUT:-$root/build/linux-x64}"
 fi
-mkdir -p "$root/build/linux-x64"
+if ! docker image inspect "$image" >/dev/null 2>&1; then
+  docker build -t "$image" -f "$dockerfile" "$here"
+fi
+mkdir -p "$out"
 # MSYS (Git Bash) would rewrite the container paths below into Windows ones.
 MSYS_NO_PATHCONV=1 docker run --rm \
   -e FAF_LINUX_BUILD_INNER=1 -e FAF_LINUX_PRESET="$preset" -e FAF_LINUX_CMAKE_ARGS="$cmake_args" \
-  -v "${FAF_LINUX_VOLUME:-faf-linux-work}:/work" \
+  -v "$volume:/work" \
   -v "$root:/src:ro" \
-  -v "$root/build/linux-x64:/src-out" \
+  -v "$out:/src-out" \
   "$image" bash /src/tools/linux-build/build.sh "${targets[@]}"
-echo "Linux programs: $root/build/linux-x64"
+echo "Linux programs: $out"
