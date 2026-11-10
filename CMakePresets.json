@@ -107,6 +107,12 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     },
     {
+      "name": "linux-clang-x64-release-portable",
+      "displayName": "Linux clang x64 Release for glibc 2.34+ (the downloadable client, tools/linux-build/Dockerfile.release)",
+      "inherits": "linux-clang-x64-release-plain",
+      "cacheVariables": { "FAF_LINUX_PINS": "release" }
+    },
+    {
       "name": "linux-clang-x64-release-coverage",
       "displayName": "Linux clang x64 with llvm-cov coverage counters (tools/coverage/report.sh)",
       "generator": "Ninja",
@@ -139,6 +145,7 @@
     { "name": "clang-x86-release-server", "configurePreset": "clang-x86-release-server" },
     { "name": "linux-clang-x64-release", "configurePreset": "linux-clang-x64-release" },
     { "name": "linux-clang-x64-release-plain", "configurePreset": "linux-clang-x64-release-plain" },
+    { "name": "linux-clang-x64-release-portable", "configurePreset": "linux-clang-x64-release-portable" },
     { "name": "linux-clang-x64-release-pgogen", "configurePreset": "linux-clang-x64-release-pgogen" },
     { "name": "clang-x64-release-coverage", "configurePreset": "clang-x64-release-coverage" },
     { "name": "linux-clang-x64-release-coverage", "configurePreset": "linux-clang-x64-release-coverage" }

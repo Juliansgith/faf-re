@@ -1,0 +1,55 @@
+# Engine addition (faf-neural-ai): the Linux release build environment, as a container.
+#
+# The parity image (tools/linux-build/Dockerfile: Ubuntu 24.04, glibc 2.39) links programs that need
+# glibc 2.38 or newer, which leaves out Ubuntu 22.04, Debian 12, Mint 21 and RHEL 9. This image builds
+# the downloadable client on Ubuntu 22.04 (glibc 2.35; nothing the programs call is newer than 2.34)
+# with LLVM's own clang 18 and libc++ 18 packages (apt.llvm.org, 18.1.8), libc++ linked statically
+# as in the parity build. The toolchain is pinned in cmake/toolchains/linux-clang-pins.cmake (the
+# "release" set) and the linux-clang-x64-release-portable preset selects it. Its simulation results
+# were checked against the Windows build on the replay corpus (docs/LINUX_CLIENT.md, Determinism);
+# the dedicated server and the parity checks keep the pinned 24.04 image.
+#
+#   FAF_LINUX_IMAGE=release tools/linux-build/build.sh faf_client
+FROM ubuntu:22.04@sha256:076e7bf82319619f28dd0aa9c02ab34b055ad37100395b4f49a2ffba04fb5e11
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl gnupg libc6-dev ninja-build python3 binutils file git rsync xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+# LLVM 18 from apt.llvm.org (Ubuntu 22.04's archive stops at clang 15). The archive key's fingerprint
+# is checked before it is trusted; the packages are pinned to the one 18.1.8 build the repository has.
+ARG LLVM_ARCHIVE_FPR=6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
+ARG LLVM_VERSION=1:18.1.8~++20240731024944+3b5b5c1ec4a3-1~exp1~20240731145000.144
+RUN curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o /tmp/llvm.asc \
+    && gpg --batch --with-colons --show-keys --with-fingerprint /tmp/llvm.asc \
+       | grep -q "^fpr:::::::::${LLVM_ARCHIVE_FPR}:" \
+    && gpg --batch --dearmor -o /usr/share/keyrings/apt-llvm.gpg /tmp/llvm.asc && rm /tmp/llvm.asc \
+    && echo "deb [signed-by=/usr/share/keyrings/apt-llvm.gpg] http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" \
+       > /etc/apt/sources.list.d/llvm-18.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+       "clang-18=${LLVM_VERSION}" "lld-18=${LLVM_VERSION}" "llvm-18=${LLVM_VERSION}" \
+       "libc++-18-dev=${LLVM_VERSION}" "libc++abi-18-dev=${LLVM_VERSION}" "libunwind-18-dev=${LLVM_VERSION}" \
+       "libclang-common-18-dev=${LLVM_VERSION}" "libclang-cpp18=${LLVM_VERSION}" "libllvm18=${LLVM_VERSION}" \
+       "libc++1-18=${LLVM_VERSION}" "libc++abi1-18=${LLVM_VERSION}" "libunwind-18=${LLVM_VERSION}" \
+    && rm -rf /var/lib/apt/lists/*
+# CMake 3.28.3, the parity image's release (the presets need 3.25; 22.04 has 3.22). Kitware's build,
+# checked against the release's published SHA-256.
+ARG CMAKE_VERSION=3.28.3
+ARG CMAKE_SHA256=804d231460ab3c8b556a42d2660af4ac7a0e21c98a7f8ee3318a74b4a9a187a6
+RUN curl -fsSL -o /tmp/cmake.tar.gz \
+       "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz" \
+    && echo "${CMAKE_SHA256}  /tmp/cmake.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/cmake.tar.gz -C /opt && rm /tmp/cmake.tar.gz \
+    && ln -s "/opt/cmake-${CMAKE_VERSION}-linux-x86_64/bin/cmake" /usr/local/bin/cmake \
+    && ln -s "/opt/cmake-${CMAKE_VERSION}-linux-x86_64/bin/ctest" /usr/local/bin/ctest
+# The client's window-system and audio headers (SDL loads the libraries at run time), as in the parity
+# image. 22.04 has all of them: PipeWire 0.3.48, libdecor 0.1, Wayland 1.20.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      pkg-config libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev \
+      libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
+      libegl-dev libgl-dev libdrm-dev libgbm-dev libpulse-dev libpipewire-0.3-dev libasound2-dev \
+      libdbus-1-dev libudev-dev libvulkan-dev \
+    && rm -rf /var/lib/apt/lists/*
+# tools/linux-build/package.sh: patchelf for the DXC libraries' compat dependency.
+RUN apt-get update && apt-get install -y --no-install-recommends patchelf \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /work
