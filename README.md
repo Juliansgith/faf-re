@@ -124,7 +124,7 @@ Configuring brings `dependencies/` up to date: it clones missing submodules, fet
 ### Linux
 
 The game also runs natively on Linux x86-64 (SDL 3, Vulkan, FAudio), with the same simulation
-results as Windows: single player and replays, not online play yet. Build and run it as
+results as Windows: single player, replays and online play with Windows players. Build and run it as
 [docs/LINUX_CLIENT.md](docs/LINUX_CLIENT.md) describes.
 
 ### IDEs

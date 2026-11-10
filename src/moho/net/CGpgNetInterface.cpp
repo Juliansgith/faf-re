@@ -1969,9 +1969,11 @@ void CGpgNetInterface::ConnectThread(
   }
 
 #if !defined(_WIN32)
-  // The Linux client plays single-player games and replays; GPGNet (online play) stays on Windows.
+  // Starting the GPGNet client process from the game (this launch-template path, the original GPGNet
+  // launcher's) is Windows-only. FAF's client starts the game with `/gpgnet host:port` instead, which
+  // connects through Connect(address, port) and works on Linux.
   (void)launchCommandTemplate;
-  gpg::Logf("GPGNet: online play is not available in the Linux client");
+  gpg::Logf("GPGNet: launching a GPGNet client from the game is not available in the Linux client");
   EnqueueCommand0("LaunchFailed", kNetStateTimedOut);
   return;
 #else
