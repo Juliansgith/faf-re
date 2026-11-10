@@ -6,6 +6,7 @@
 
 #include "platform/posix/win32/Windows.h"
 #include "platform/posix/win32/io.h"
+#include "platform/posix/NativePath.h"
 #include "platform/posix/WinsockShimHooks.h"
 #include "gpg/core/containers/String.h"
 
@@ -455,6 +456,11 @@ namespace
     return reinterpret_cast<pthread_mutex_t*>(section->storage);
   }
 } // namespace
+
+std::string faf::posix::NativePath(const char* const path)
+{
+  return SlashPath(path);
+}
 
 // --- Synchronisation ---------------------------------------------------------------------
 

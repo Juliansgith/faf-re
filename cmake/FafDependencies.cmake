@@ -300,6 +300,13 @@ set(_faf_download_DirectXMath
 set(_faf_download_dxc-linux
     "https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/linux_dxc_2026_09_28.x86_x64.tar.gz"
     "96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1")
+# FFmpeg 7.1.3 (LGPL 2.1+): the release archive, the same source as the Windows build's
+# dependencies/ffmpeg submodule; cmake/deps/ffmpeg-linux configures and builds the SFD movie
+# decoder's static libraries from it.
+set(_faf_download_ffmpeg-linux
+    "https://ffmpeg.org/releases/ffmpeg-7.1.3.tar.xz"
+    "f0bf043299db9e3caacb435a712fc541fbb07df613c4b893e8b77e67baf3adbe"
+    "ffmpeg-7.1.3")
 
 function(_faf_download_tree name)
   list(GET _faf_download_${name} 0 _url)
@@ -489,6 +496,7 @@ if(FAF_LINUX OR (CMAKE_SCRIPT_MODE_FILE AND FAF_DEPENDENCIES_ONLY))
   faf_dependency_download(DirectX-Headers)
   faf_dependency_download(DirectXMath)
   faf_dependency_download(dxc-linux)
+  faf_dependency_download(ffmpeg-linux)
 endif()
 
 faf_dependency_patches(WildMagic3p8 submodule

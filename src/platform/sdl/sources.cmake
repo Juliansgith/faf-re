@@ -24,10 +24,7 @@ set(FAF_LINUX_CLIENT_EXCLUDE
   # types come from DirectX-Headers' WSL stubs, which clash with the POSIX shim.
   "^gpg/gal/backends/common/ImageCodecDirectXTex\\.cpp$"
   # Already in faf_sim on Linux (cmake/FafLinux.cmake), which the client links.
-  "^gpg/gal/MatrixPortable\\.cpp$"
-  # The SFD movie decoder needs FFmpeg, which the Linux build does not have yet: platform/sdl's
-  # FfmpegSfdDecoderStub.cpp fails every movie instead.
-  "^moho/movie/sfd/FfmpegSfdDecoder\\.cpp$")
+  "^gpg/gal/MatrixPortable\\.cpp$")
 
 set(FAF_LINUX_CLIENT_SOURCES
   # The effect-source override layer lives with Direct3D 11 but has no Direct3D in it: Vulkan runs every
@@ -49,8 +46,6 @@ set(FAF_LINUX_CLIENT_SOURCES
   platform/sdl/WxLiteWindows.cpp
   platform/sdl/SdlApp.cpp
   platform/sdl/SdlWin32.cpp
-  # Movies fail without FFmpeg (see the exclusion above).
-  platform/sdl/FfmpegSfdDecoderStub.cpp
   # What the client calls of the excluded online transport and peer links, and of the wx tool windows
   # (the log window's target, the entity dialog command).
   platform/sdl/NetLinuxStubs.cpp

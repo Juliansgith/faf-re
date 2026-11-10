@@ -13,6 +13,9 @@ the same code as on Windows and gives the same results, bit for bit (see [Determ
   fields), windowed and full screen (`/fullscreen` or the video options: the window covers the
   desktop at its own mode, borderless; no display mode is changed).
 - Sound and music.
+- Movies (`.sfd`): the intros, the main menu's animated background and the campaign movies, with
+  their embedded audio. The decoder is the Windows build's (`moho/movie/sfd` on FFmpeg, see
+  [FAF_SFD_COMPATIBILITY.md](FAF_SFD_COMPATIBILITY.md)); `/nomovie` skips the intros as on Windows.
 - Preferences, saved games and replays are written and read back (see [Files](#files)).
 - Online play over the lockstep transport, with Windows players in the same game (see
   [Online play](#online-play)). `/connectserver` (the server-authoritative mode) is in too.
@@ -21,8 +24,6 @@ Not there yet:
 
 - **The in-engine peer links** (`/nativenet`, `src/netlink`: ICE on libjuice and libdatachannel)
   are left out of the Linux build; FAF games go through FAF's ICE adapter, as the shipped game's do.
-- **Movies.** They need FFmpeg, which the Linux build does not have yet. Every movie is skipped,
-  and the main menu's background stays black.
 - The map editor and the Windows tool windows (log window, Lua debugger, emitter editor).
 
 The client has been tested in a container (Xvfb with Mesa's software Vulkan driver, lavapipe) and
@@ -44,9 +45,18 @@ folder, `libdxcompiler.so` and `libdxil.so`. Keep the three together. That build
 or newer to run.
 
 The first configure downloads the client's dependencies (SDL 3, FAudio, DirectX-Headers,
-DirectXMath, DXC for Linux), each pinned by SHA256 in `cmake/FafDependencies.cmake`. The submodules
+DirectXMath, DXC for Linux, FFmpeg), each pinned by SHA256 in `cmake/FafDependencies.cmake`. The submodules
 and boost come from the checkout (`cmake -DFAF_DEPENDENCIES_ONLY="WildMagic3p8;zlib-1.2.3;boost_1_34_1;vulkan"
 -P cmake/FafDependencies.cmake` prepares them, as the workflows do).
+
+FFmpeg is the 7.1.3 release archive, the same source as the Windows build's `dependencies/ffmpeg`
+submodule, configured as on Windows: MPEG-1/2 video, ADX and MPEG audio, the MPEG program stream
+demuxer and the file protocol, nothing else, and on Linux no system libraries either
+(`--disable-autodetect`). `cmake/deps/ffmpeg-linux` runs FFmpeg's `configure` once, at CMake
+configure time, and compiles avutil, swresample, swscale, avcodec and avformat as static CMake
+targets. The build container has no make, so their source lists come out of FFmpeg's Makefiles
+through `cmake/deps/ffmpeg-linux/gen_sources.py`, the Windows build's script. They are linked into
+`faf`, which still needs nothing at run time beyond glibc, libm and libgcc_s.
 
 ### The release build
 
