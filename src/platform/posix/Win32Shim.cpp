@@ -6,6 +6,7 @@
 
 #include "platform/posix/win32/Windows.h"
 #include "platform/posix/win32/io.h"
+#include "platform/posix/WinsockShimHooks.h"
 #include "gpg/core/containers/String.h"
 
 #include <algorithm>
@@ -258,6 +259,16 @@ namespace
     LONG recursion = 0;
     std::mutex mutex;
     std::condition_variable signalled;
+    /// Selected for sockets (WSAEventSelect, WinsockShim.cpp): its watcher polls them again whenever
+    /// the event goes from signalled to not signalled.
+    std::atomic<bool> socketWatched{false};
+
+    void NoteClearedLocked() const noexcept
+    {
+      if (socketWatched.load(std::memory_order_relaxed)) {
+        FafWsaEventCleared();
+      }
+    }
 
     [[nodiscard]] bool ReadyLocked() const noexcept
     {
@@ -274,6 +285,7 @@ namespace
       case Kind::Event:
         if (!manualReset) {
           count = 0;
+          NoteClearedLocked();
         }
         break;
       case Kind::Semaphore:
@@ -554,7 +566,25 @@ BOOL ResetEvent(const HANDLE handle)
   }
   std::lock_guard<std::mutex> lock(object->mutex);
   object->count = 0;
+  object->NoteClearedLocked();
   return TRUE;
+}
+
+bool FafShimEventSignalled(const HANDLE handle) noexcept
+{
+  WaitObject* const object = AsWaitObject(handle);
+  if (object == nullptr) {
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(object->mutex);
+  return object->count > 0;
+}
+
+void FafShimWatchEvent(const HANDLE handle) noexcept
+{
+  if (WaitObject* const object = AsWaitObject(handle); object != nullptr && object->kind == ShimHandle::Kind::Event) {
+    object->socketWatched.store(true, std::memory_order_relaxed);
+  }
 }
 
 DWORD WaitForSingleObject(const HANDLE handle, const DWORD milliseconds)
@@ -659,6 +689,10 @@ BOOL CloseHandle(const HANDLE handle)
   if (object == nullptr) {
     tLastError = ERROR_INVALID_HANDLE;
     return FALSE;
+  }
+  if (WaitObject* const waitObject = AsWaitObject(handle);
+      waitObject != nullptr && waitObject->socketWatched.load(std::memory_order_relaxed)) {
+    FafWsaForgetEvent(handle); // no socket sets it once it is gone
   }
   delete object;
   return TRUE;
@@ -2347,6 +2381,19 @@ ULONGLONG GetTickCount64()
   timespec now{};
   ::clock_gettime(CLOCK_MONOTONIC, &now);
   return static_cast<ULONGLONG>(now.tv_sec) * 1000u + static_cast<ULONGLONG>(now.tv_nsec) / 1000000u;
+}
+
+errno_t _dupenv_s(char** const buffer, std::size_t* const length, const char* const name)
+{
+  if (buffer == nullptr) {
+    return EINVAL;
+  }
+  const char* const value = name != nullptr ? std::getenv(name) : nullptr;
+  *buffer = value != nullptr ? ::strdup(value) : nullptr;
+  if (length != nullptr) {
+    *length = *buffer != nullptr ? std::strlen(value) + 1 : 0;
+  }
+  return value != nullptr && *buffer == nullptr ? ENOMEM : 0;
 }
 
 errno_t getenv_s(std::size_t* const requiredSize, char* const buffer, const std::size_t bufferSize, const char* const name)
