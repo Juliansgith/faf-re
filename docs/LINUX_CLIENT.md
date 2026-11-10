@@ -111,7 +111,8 @@ checksums (`27796180.checksums`), plays it at normal speed with the render profi
 the logs into one archive:
 
 ```sh
-tools/linux-build/gpu-check/gpu-check.sh --game <folder with faf>     --fa <Forged Alliance install> --faf <FAF data folder>
+tools/linux-build/gpu-check/gpu-check.sh --game <folder with faf> \
+    --fa <Forged Alliance install> --faf <FAF data folder>
 ```
 
 The Forged Alliance install and FAF's `C:\ProgramData\FAForever` can be read straight from a
