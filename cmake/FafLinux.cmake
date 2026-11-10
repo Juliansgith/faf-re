@@ -104,12 +104,13 @@ add_subdirectory("${PROJECT_SOURCE_DIR}/cmake/deps/zlib" "${CMAKE_BINARY_DIR}/de
 # simulation targets build as before.
 option(FAF_FETCH_DEPENDENCIES "Fetch the net channel's Monocypher download at configure time" ON)
 # Engine addition (faf-neural-ai): the native Linux client (window, renderer, sound, UI) as well as the
-# simulation's programs; its dependencies are SDL 3, FAudio, DirectX-Headers, DXC, FreeType, msdfgen.
+# simulation's programs; its dependencies are SDL 3, FAudio, DirectX-Headers, DXC, FreeType, msdfgen, FFmpeg.
 option(FAF_LINUX_CLIENT "Build the native Linux client (faf_client)" OFF)
 if(FAF_FETCH_DEPENDENCIES)
   set(FAF_DEPENDENCIES_ONLY monocypher zstd googletest)
   if(FAF_LINUX_CLIENT)
-    list(APPEND FAF_DEPENDENCIES_ONLY SDL3 FAudio DirectX-Headers DirectXMath dxc-linux freetype msdfgen DirectXTex)
+    list(APPEND FAF_DEPENDENCIES_ONLY SDL3 FAudio DirectX-Headers DirectXMath dxc-linux freetype msdfgen DirectXTex
+      ffmpeg-linux)
   endif()
   include(FafDependencies)
 endif()
@@ -495,6 +496,8 @@ if(FAF_LINUX_CLIENT)
   add_subdirectory("${PROJECT_SOURCE_DIR}/cmake/deps/freetype" "${CMAKE_BINARY_DIR}/deps/freetype")
   add_subdirectory("${PROJECT_SOURCE_DIR}/cmake/deps/msdfgen" "${CMAKE_BINARY_DIR}/deps/msdfgen")
   add_subdirectory("${PROJECT_SOURCE_DIR}/cmake/deps/directxtex-linux" "${CMAKE_BINARY_DIR}/deps/directxtex-linux")
+  # FFmpeg for the SFD movies (static; sets FAF_FFMPEG_INCLUDE_DIRS).
+  add_subdirectory("${PROJECT_SOURCE_DIR}/cmake/deps/ffmpeg-linux" "${CMAKE_BINARY_DIR}/deps/ffmpeg-linux")
 
   include("${PROJECT_SOURCE_DIR}/src/platform/sdl/sources.cmake")
   set(_faf_client_files "")
@@ -540,6 +543,11 @@ if(FAF_LINUX_CLIENT)
     "${FAF_DEPENDENCIES_DIR}/DirectX-Headers/include/directx"
     "${FAF_DEPENDENCIES_DIR}/dxc-linux/include")
 
+  # FFmpeg's headers for the movie decoder only, which compiles with them as on Windows
+  # (src/CMakeLists.txt): extern "C" C headers, their warnings off.
+  set_source_files_properties("${PROJECT_SOURCE_DIR}/src/moho/movie/sfd/FfmpegSfdDecoder.cpp" PROPERTIES
+    INCLUDE_DIRECTORIES "${FAF_FFMPEG_INCLUDE_DIRS}" COMPILE_OPTIONS -Wno-everything)
+
   # The sim's objects first, then the client's: ELF runs the dynamic initializers in link order, and
   # the client's registrations look up the sim's type descriptors (SBatchTextureDataFactory.cpp's
   # prefetch type needs SBatchTextureDataTypeInfo.cpp's), which on Windows come earlier in
@@ -549,7 +557,7 @@ if(FAF_LINUX_CLIENT)
   set_target_properties(faf_client PROPERTIES OUTPUT_NAME "faf")
   # faf_sim's and faf_client_objects' usage requirements without their objects.
   target_link_libraries(faf_client PRIVATE faf_sim_settings Wm3Headers zlib123 faf_monocypher faf_zstd
-    SDL3::SDL3-static FAudio-static faf_freetype faf_msdfgen faf_directxtex_linux)
+    SDL3::SDL3-static FAudio-static faf_freetype faf_msdfgen faf_directxtex_linux faf_ffmpeg)
   if(TARGET faf_netchannel)
     target_link_libraries(faf_client PRIVATE faf_netchannel)
   endif()
