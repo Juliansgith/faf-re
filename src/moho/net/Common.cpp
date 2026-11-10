@@ -12,12 +12,8 @@
 #include "CHostManager.h"
 #include "CGpgNetInterface.h"
 #include "CNetNullConnector.h"
-#if defined(_WIN32)
 #include "CNetTCPConnector.h"
 #include "CNetUDPConnector.h"
-#else
-#include "INetTCPSocket.h"
-#endif
 #include "gpg/core/containers/String.h"
 #include "gpg/core/streams/BinaryReader.h"
 #include "gpg/core/utils/Global.h"
@@ -719,7 +715,6 @@ SNetCommandArg moho::NET_DecodeSocketArg(gpg::BinaryReader& reader)
  */
 bool moho::NET_Init()
 {
-#if defined(_WIN32)
   static bool sWinsockInitialized = false;
   if (!sWinsockInitialized) {
     WSAData wsaData;
@@ -730,9 +725,6 @@ bool moho::NET_Init()
     }
   }
   return sWinsockInitialized;
-#else
-  return false;
-#endif
 }
 
 /**
@@ -781,7 +773,6 @@ INetConnector* moho::NET_MakeConnector(
  */
 INetConnector* moho::NET_MakeUDPConnector(const u_short port, boost::weak_ptr<INetNATTraversalProvider> prov)
 {
-#if defined(_WIN32)
   if (!NET_Init()) {
     return nullptr;
   }
@@ -803,7 +794,7 @@ INetConnector* moho::NET_MakeUDPConnector(const u_short port, boost::weak_ptr<IN
   sockaddr_in name;
   name.sin_family = AF_INET;
   name.sin_port = ::htons(port);
-  name.sin_addr.S_un.S_addr = ::htonl(0);
+  name.sin_addr.s_addr = ::htonl(0);
   if (::bind(sock, (SOCKADDR*)&name, sizeof(name)) == SOCKET_ERROR) {
     gpg::Logf("NET_MakeUDPConnector: bind(%d) failed: %s", port, NET_GetWinsockErrorString());
     ::closesocket(sock);
@@ -824,14 +815,6 @@ INetConnector* moho::NET_MakeUDPConnector(const u_short port, boost::weak_ptr<IN
     }
   }
   return new CNetUDPConnector{sock, prov};
-#else
-  // Engine addition (dedicated-server plan WPL.5): the lockstep transport (the WSAEventSelect
-  // connectors and their sockets) is Windows only; NET_Init fails here, so this fails as the
-  // Windows function does when Winsock cannot start.
-  (void)port;
-  (void)prov;
-  return nullptr;
-#endif
 }
 
 /**
@@ -842,7 +825,6 @@ INetConnector* moho::NET_MakeUDPConnector(const u_short port, boost::weak_ptr<IN
  */
 INetConnector* moho::NET_MakeTCPConnector(const u_short port)
 {
-#if defined(_WIN32)
   if (!NET_Init()) {
     return nullptr;
   }
@@ -882,26 +864,7 @@ INetConnector* moho::NET_MakeTCPConnector(const u_short port)
     return nullptr;
   }
   return connector;
-#else
-  // Engine addition (dedicated-server plan WPL.5): see NET_MakeUDPConnector.
-  (void)port;
-  return nullptr;
-#endif
 }
-
-#if !defined(_WIN32)
-/**
- * Engine addition (dedicated-server plan WPL.5): moho/net/INetTCPSocket.cpp (the Winsock TCP
- * socket) is Windows only. NET_Init fails here, and NET_TCPConnect fails as the Windows
- * function does then.
- */
-moho::INetTCPSocket* moho::NET_TCPConnect(const u_long address, const u_short port)
-{
-  (void)address;
-  (void)port;
-  return nullptr;
-}
-#endif
 
 /**
  * Address: 0x0047F990 (FUN_0047F990)
@@ -937,7 +900,6 @@ fa::string moho::NET_GetHostName(const u_long address)
  */
 const char* moho::NET_GetWinsockErrorString() noexcept
 {
-#if defined(_WIN32)
   const int e = ::WSAGetLastError();
   if (e == 0) {
     return "NOERROR";
@@ -1054,10 +1016,6 @@ const char* moho::NET_GetWinsockErrorString() noexcept
   default:
     return "UNKNOWN";
   }
-#else
-  // Non-Windows build: no Winsock -> stable stub.
-  return "NO_WINSOCK";
-#endif
 }
 
 /**

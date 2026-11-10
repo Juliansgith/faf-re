@@ -141,11 +141,9 @@ list(FILTER FAF_SIM_SOURCES EXCLUDE REGEX "^moho/misc/WinPlatform\\.cpp$")
 # The crash diagnostics on dbghelp, vectored exception handlers, minidumps and debug
 # registers; gpg/core/diagnostics/posix/DiagnosticsPosix.cpp implements their headers.
 list(FILTER FAF_SIM_SOURCES EXCLUDE REGEX "^gpg/core/diagnostics/(CrashHooks|CrashReport|ProbeWatch)\\.cpp$")
-# The lockstep transport: Winsock sockets driven by WSAEventSelect. Linux replays and
-# serves games without it (the server has its own channel, plan D3); moho/net/Common.cpp's
-# connector factories fail here as on a Windows host without Winsock.
-# NetPeerTransport (issue #232) belongs to CNetUDPConnector and goes with it.
-list(FILTER FAF_SIM_SOURCES EXCLUDE REGEX "^moho/net/(CNetDatagramSocketImpl|CNetTCPBuf|CNetTCPConnection|CNetTCPConnector|CNetTCPServerImpl|CNetUDPConnection|CNetUDPConnector|NetPeerTransport|INetDatagramSocket|INetTCPServer|INetTCPSocket)\\.cpp$")
+# The lockstep transport (Winsock sockets driven by WSAEventSelect, moho/net/CNet*.cpp and
+# INetTCP*.cpp) is in: on Linux its sockets are BSD sockets, and Winsock's event model comes
+# from platform/posix/WinsockShim.cpp (below), so Linux and Windows games share a session.
 # The agent bridge (moho/agent, faf-neural-ai) is in: its sockets go through
 # platform/posix/win32/winsock2.h and its timing through the POSIX clocks. AgentNetDiag.cpp is
 # client-only (src/sim_sources.cmake) and stays out with the rest of the client.
@@ -191,6 +189,9 @@ target_sources(faf_sim PRIVATE "${PROJECT_SOURCE_DIR}/src/legacy/math/X87Math64.
 target_sources(faf_sim PRIVATE "${PROJECT_SOURCE_DIR}/src/gpg/gal/MatrixPortable.cpp")
 # The Win32 calls the shared code makes, on POSIX (plan WPL.5).
 target_sources(faf_sim PRIVATE "${PROJECT_SOURCE_DIR}/src/platform/posix/Win32Shim.cpp")
+# Winsock's event model (WSAEventSelect, WSAWaitForMultipleEvents) on poll(2), for the
+# lockstep transport and GPGNet.
+target_sources(faf_sim PRIVATE "${PROJECT_SOURCE_DIR}/src/platform/posix/WinsockShim.cpp")
 # The crash diagnostics' headers on POSIX (plan WPL.5).
 target_sources(faf_sim PRIVATE "${PROJECT_SOURCE_DIR}/src/gpg/core/diagnostics/posix/DiagnosticsPosix.cpp")
 # moho/misc/WinPlatform.cpp's platform services (call stacks, error text, message boxes) and
@@ -486,7 +487,7 @@ faf_add_tests_target("${PROJECT_SOURCE_DIR}")
 # --- faf_client (faf-neural-ai): the native Linux client --------------------------------
 # The client's own translation units (FAF_ENGINE_SOURCES without the simulation's), compiled as the
 # simulation's are, on top of every faf_sim object: the same simulation as headless and Windows. Left
-# out: the Direct3D backends, Effects 11, the lockstep UDP transport (online play stays Windows-only),
+# out: the Direct3D backends, Effects 11, the in-engine ICE peer links (moho/net/NetlinkPeers.cpp),
 # the Windows crash plumbing, the wx tool windows (script debugger, log window, effect and reference
 # editors) and the Win32 application shell, which src/platform/sdl replaces with SDL 3.
 if(FAF_LINUX_CLIENT)

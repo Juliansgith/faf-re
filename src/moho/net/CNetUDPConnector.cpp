@@ -58,11 +58,7 @@ ENetProtocolType CNetUDPConnector::GetProtocol()
  */
 bool CNetUDPConnector::SignalSocketEvent() noexcept
 {
-#if defined(_WIN32)
   return ::WSASetEvent(event_) != FALSE;
-#else
-  return false;
-#endif
 }
 
 /**
@@ -99,10 +95,8 @@ CNetUDPConnector::~CNetUDPConnector()
     delete static_cast<SNetPacket*>(mPacketList.mNext);
   }
 
-#if defined(_WIN32)
   if (socket_ != INVALID_SOCKET)
     closesocket(socket_);
-#endif
 
   if (mPacketLogFile) {
     fclose(mPacketLogFile);
@@ -204,9 +198,7 @@ void CNetUDPConnector::Destroy()
   }
 
   mClosed = true;
-#if defined(_WIN32)
   SignalSocketEvent();
-#endif
 }
 
 /**
@@ -236,9 +228,7 @@ u_short CNetUDPConnector::GetLocalPort()
 CNetUDPConnection* CNetUDPConnector::Connect(const u_long address, const u_short port)
 {
   boost::recursive_mutex::scoped_lock lock{lock_};
-#if defined(_WIN32)
   SignalSocketEvent();
-#endif
 
   for (auto* conn : mConnections.owners()) {
     // Match by address/port
@@ -382,9 +372,7 @@ void CNetUDPConnector::Pull()
 
   mIsPulling = false;
   if (mClosed) {
-#if defined(_WIN32)
     SignalSocketEvent();
-#endif
   }
 }
 
@@ -407,9 +395,7 @@ void CNetUDPConnector::Push()
   }
 
   if (didFlush) {
-#if defined(_WIN32)
     SignalSocketEvent();
-#endif
   }
 }
 
@@ -424,9 +410,7 @@ void CNetUDPConnector::SelectEvent(const HANDLE ev)
 {
   boost::recursive_mutex::scoped_lock lock{lock_};
   mSelectedEvent = ev;
-#if defined(_WIN32)
   SignalSocketEvent();
-#endif
 }
 
 /**
@@ -525,17 +509,11 @@ void CNetUDPConnector::ReceiveData()
       recvfrom(socket_, static_cast<char*>(packet->GetPayload()), 512, 0, reinterpret_cast<sockaddr*>(&from), &fromLen);
 
     if (n < 0) {
-#if defined(_WIN32)
       const int lastErr = WSAGetLastError();
       if (lastErr != WSAEWOULDBLOCK && net_DebugLevel) {
         const char* es = NET_GetWinsockErrorString();
         gpg::Logf("CNetUDPConnector<%hu>::ReceiveData(): recvfrom() failed: %s", GetLocalPort(), es);
       }
-#else
-      if (errno != EWOULDBLOCK && errno != EAGAIN && net_DebugLevel) {
-        gpg::Logf("CNetUDPConnector<%hu>::ReceiveData(): recvfrom() failed: errno=%d", GetLocalPort(), errno);
-      }
-#endif
       break;
     }
 
@@ -608,11 +586,9 @@ void CNetUDPConnector::HandleReceivedDatagram(
     ) {
       packet->ListUnlink();
       mInboundTraversalPackets.push_back({packet, addrHost, portHost});
-#if defined(_WIN32)
       if (mSelectedEvent) {
         SetEvent(mSelectedEvent);
       }
-#endif
     }
     return;
   }
@@ -812,11 +788,9 @@ void CNetUDPConnector::ProcessConnect(const SNetPacket* packet, const u_long add
   }
 
   newConnection->ProcessConnect(packet);
-#if defined(_WIN32)
   if (mSelectedEvent) {
     SetEvent(mSelectedEvent);
   }
-#endif
 }
 
 /**
@@ -954,9 +928,7 @@ void CNetUDPConnector::ReceivePacket(const u_long address, const u_short port, c
   const SReceivePacket r{packet, address, port};
   mOutboundPackets.push_back(r);
 
-#if defined(_WIN32)
   SignalSocketEvent();
-#endif
 }
 
 /**
@@ -989,9 +961,7 @@ void CNetUDPConnector::Entry()
   const fa::string name = gpg::STR_Printf("CNetUDPConnector for port %d", GetLocalPort());
   gpg::SetThreadName(0xFFFFFFFF, name.c_str());
   THREAD_SetAffinity(false);
-#if defined(_WIN32)
   ::SetThreadPriority(::GetCurrentThread(), 2);
-#endif
   boost::recursive_mutex::scoped_lock lock{lock_};
   while (true) {
     if (!net_LogPackets && mPacketLogFile != nullptr) {
@@ -1056,7 +1026,7 @@ int32_t CNetUDPConnector::SendData()
     sockaddr_in name;
     name.sin_family = AF_INET;
     name.sin_port = ::htons(packet.mPort);
-    name.sin_addr.S_un.S_addr = ::htonl(packet.mAddr);
+    name.sin_addr.s_addr = ::htonl(packet.mAddr);
 
     const auto payload = packet.mPacket->GetPayload();
     const auto payloadSize = packet.mPacket->GetPayloadSize();

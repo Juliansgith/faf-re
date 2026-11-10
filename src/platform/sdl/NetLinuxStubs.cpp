@@ -1,13 +1,13 @@
-// Engine addition (faf-neural-ai): online play stays Windows-only in the first native Linux client
-// (src/platform/sdl/sources.cmake leaves out the lockstep UDP transport and the in-engine peer links,
-// moho/net/NetlinkPeers.cpp, whose ICE stack - src/netlink, libjuice - the Linux build does not link).
-// What the rest of the client calls of them: no LAN discovery socket, no peer links, empty snapshots.
-// Each says so once in the log.
+// Engine addition (faf-neural-ai): the native Linux client plays online through the lockstep transport
+// (moho/net/CNet*.cpp on platform/posix/WinsockShim.cpp) - direct games, LAN discovery, and FAF through
+// its ICE adapter over GPGNet - but leaves out the in-engine peer links, moho/net/NetlinkPeers.cpp
+// (src/platform/sdl/sources.cmake), whose ICE stack - src/netlink on libjuice and libdatachannel - the
+// Linux build does not link. What the rest of the client calls of them: no peer links, empty snapshots,
+// Netlink* commands dropped (said once in the log).
 
 #include <atomic>
 
 #include "gpg/core/utils/Logging.h"
-#include "moho/net/INetDatagramSocket.h"
 #include "moho/net/NetlinkPeers.h"
 
 namespace
@@ -15,17 +15,10 @@ namespace
   void LogOnce(std::atomic<bool>& logged, const char* const what)
   {
     if (!logged.exchange(true)) {
-      gpg::Warnf("%s: online play is not in the Linux client yet", what);
+      gpg::Warnf("%s: the in-engine peer links are not in the Linux client yet", what);
     }
   }
 } // namespace
-
-moho::INetDatagramSocket* moho::NET_OpenDatagramSocket(u_short, INetDatagramHandler*)
-{
-  static std::atomic<bool> sLogged{false};
-  LogOnce(sLogged, "NET_OpenDatagramSocket (LAN game discovery)");
-  return nullptr; // CDiscoveryService runs without its socket
-}
 
 moho::SNetlinkSnapshot moho::NETLINK_GetSnapshot()
 {
