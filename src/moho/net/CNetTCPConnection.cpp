@@ -266,6 +266,7 @@ void CNetTCPConnection::Pull()
 
   switch (mState) {
   case kNetStateConnecting: {
+#if defined(_WIN32)
     fd_set writeFds{};
     writeFds.fd_count = 1;
     writeFds.fd_array[0] = mSocket;
@@ -276,6 +277,25 @@ void CNetTCPConnection::Pull()
     timeout.tv_usec = 0;
 
     const int selected = ::select(0, nullptr, &writeFds, &exceptFds, &timeout);
+#else
+    // Engine addition (faf-neural-ai, the Linux client): BSD's fd_set is a bitmap and select counts
+    // descriptors, and a failed connect shows as writable with SO_ERROR set where Winsock puts it in
+    // the except set. The sets below come out as Winsock's would.
+    fd_set writeFds;
+    FD_ZERO(&writeFds);
+    FD_SET(mSocket, &writeFds);
+    fd_set exceptFds = writeFds;
+    timeval timeout{};
+    const int selected = ::select(mSocket + 1, nullptr, &writeFds, &exceptFds, &timeout);
+    if (selected > 0 && FD_ISSET(mSocket, &writeFds)) {
+      int connectError = 0;
+      socklen_t connectErrorLength = sizeof(connectError);
+      if (::getsockopt(mSocket, SOL_SOCKET, SO_ERROR, &connectError, &connectErrorLength) != 0 || connectError != 0) {
+        FD_CLR(mSocket, &writeFds);
+        FD_SET(mSocket, &exceptFds);
+      }
+    }
+#endif
     if (selected == 0) {
       return;
     }

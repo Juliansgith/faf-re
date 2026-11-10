@@ -732,6 +732,8 @@ using USHORT = unsigned short;
 using COLORREF = DWORD;
 ULONGLONG GetTickCount64();
 errno_t getenv_s(std::size_t* requiredSize, char* buffer, std::size_t bufferSize, const char* name);
+/// A malloc'd copy of the variable (free it), or null and 0 when it is not set.
+errno_t _dupenv_s(char** buffer, std::size_t* length, const char* name);
 int _wcsicmp(const wchar_t* left, const wchar_t* right) noexcept;
 DWORD GetModuleFileNameA(HMODULE module, char* fileName, DWORD size);
 char* GetCommandLineA();

@@ -7,10 +7,8 @@ set(FAF_LINUX_CLIENT_EXCLUDE
   # Direct3D 9, 10, 11 and 12 and Effects 11: Vulkan is the Linux renderer.
   "^gpg/gal/backends/(d3d9|d3d10|d3d11|d3d12)/"
   "/FX11/"
-  # The lockstep UDP transport (Winsock event sockets): online play stays Windows-only.
-  "^moho/net/(CNetDatagramSocketImpl|CNetTCPBuf|CNetTCPConnection|CNetTCPConnector|CNetTCPServerImpl|CNetUDPConnection|CNetUDPConnector|NetPeerTransport|INetDatagramSocket|INetTCPServer|INetTCPSocket)\\.cpp$"
-  # The in-engine peer links (src/netlink's ICE stack, libjuice, is not in the Linux build):
-  # platform/sdl/NetLinuxStubs.cpp has no links and no LAN discovery socket.
+  # The in-engine peer links (src/netlink's ICE stack, libjuice and libdatachannel, is not in the
+  # Linux build): platform/sdl/NetLinuxStubs.cpp has no links. The lockstep transport is in faf_sim.
   "^moho/net/NetlinkPeers\\.cpp$"
   # Windows crash plumbing (dbghelp, minidumps, the crash dialog); platform/posix has the rest.
   "^gpg/core/diagnostics/(CrashHooks|CrashReport|ProbeWatch|CrashReportDialog|FrameSampler)\\.cpp$"

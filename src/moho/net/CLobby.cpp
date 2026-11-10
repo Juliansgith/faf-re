@@ -989,7 +989,14 @@ void CLobby::OnNewPeer(
   int32_t uid{0};
 
   br.ReadString(&name);
+#if defined(_WIN32)
   br.ReadExact(host);
+#else
+  // Engine addition (faf-neural-ai): u_long is 64-bit on Linux; the wire has Winsock's 32-bit address.
+  std::uint32_t wireHost{0};
+  br.ReadExact(wireHost);
+  host = wireHost;
+#endif
   br.ReadExact(port);
   br.ReadExact(uid);
 

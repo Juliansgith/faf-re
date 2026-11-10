@@ -1,5 +1,6 @@
 #pragma once
 #include "INetDatagramSocket.h"
+#include <winsock2.h> // after platform/Platform.h; on Linux platform/posix/win32/winsock2.h
 
 namespace moho
 {

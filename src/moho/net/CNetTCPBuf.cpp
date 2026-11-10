@@ -283,6 +283,7 @@ size_t CNetTCPBuf::Read(char* buf, size_t len, const bool isBlocking)
       if (buf != nullptr) {
         while (len >= kChunkSize) {
           if (!isBlocking) {
+#if defined(_WIN32)
             fd_set readFds{};
             readFds.fd_count = 1;
             readFds.fd_array[0] = mSocket;
@@ -290,6 +291,14 @@ size_t CNetTCPBuf::Read(char* buf, size_t len, const bool isBlocking)
             timeout.tv_sec = 0;
             timeout.tv_usec = 0;
             const int selectRes = select(1, &readFds, nullptr, nullptr, &timeout);
+#else
+            // Engine addition (faf-neural-ai): BSD's fd_set is a bitmap and select counts descriptors.
+            fd_set readFds;
+            FD_ZERO(&readFds);
+            FD_SET(mSocket, &readFds);
+            timeval timeout{};
+            const int selectRes = select(mSocket + 1, &readFds, nullptr, nullptr, &timeout);
+#endif
             if (selectRes != SOCKET_ERROR && selectRes <= 0) {
               return copiedFromBuffer;
             }
@@ -360,6 +369,7 @@ size_t CNetTCPBuf::Read(char* buf, size_t len, const bool isBlocking)
  */
 bool CNetTCPBuf::Select() const
 {
+#if defined(_WIN32)
   fd_set readFds{};
   readFds.fd_count = 1;
   readFds.fd_array[0] = mSocket;
@@ -369,6 +379,14 @@ bool CNetTCPBuf::Select() const
   timeout.tv_usec = 0;
 
   const int selected = select(1, &readFds, nullptr, nullptr, &timeout);
+#else
+  // Engine addition (faf-neural-ai): BSD's fd_set is a bitmap and select counts descriptors.
+  fd_set readFds;
+  FD_ZERO(&readFds);
+  FD_SET(mSocket, &readFds);
+  timeval timeout{};
+  const int selected = select(mSocket + 1, &readFds, nullptr, nullptr, &timeout);
+#endif
   return selected == SOCKET_ERROR || selected > 0;
 }
 

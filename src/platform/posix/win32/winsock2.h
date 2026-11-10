@@ -1,10 +1,10 @@
 #pragma once
 
 // Engine addition (dedicated-server plan WPL.5): the subset of <winsock2.h> that the shared
-// network code names, for the Linux build, on BSD sockets. The lockstep transport (the
-// WSAEventSelect connectors in moho/net/CNet*Connector.cpp and the sockets under them) is
-// not part of the Linux build; what remains here is enough for the code that names its
-// types and for moho/net/Common.cpp's helpers.
+// network code names, for the Linux build, on BSD sockets. Winsock's event model, which the
+// lockstep transport (moho/net/CNet*.cpp) runs on - WSAEventSelect tying a socket's network
+// events to an event the engine waits on, WSAWaitForMultipleEvents - is implemented on
+// poll(2) in src/platform/posix/WinsockShim.cpp (faf-neural-ai, the Linux client's online play).
 
 #if defined(_WIN32)
 #error "platform/posix/win32/winsock2.h is for builds without the Windows SDK"
@@ -61,10 +61,106 @@ inline int WSACleanup() noexcept
   return 0;
 }
 
+using WSAData = WSADATA;
+
+/// platform/posix/WinsockShim.cpp, when it is linked: drops the socket from WSAEventSelect's watch
+/// before its descriptor is closed (and possibly reused).
+extern "C" void FafWsaForgetSocket(int socket) __attribute__((weak));
+
 inline int closesocket(const SOCKET socket) noexcept
 {
+  if (FafWsaForgetSocket != nullptr) {
+    FafWsaForgetSocket(socket);
+  }
   return ::close(socket);
 }
+
+// Winsock's length arguments are int; BSD's are socklen_t. These overloads take the Winsock form.
+inline int getsockname(const SOCKET socket, sockaddr* const name, int* const length) noexcept
+{
+  socklen_t bsdLength = length != nullptr ? static_cast<socklen_t>(*length) : 0;
+  const int result = ::getsockname(socket, name, &bsdLength);
+  if (length != nullptr) {
+    *length = static_cast<int>(bsdLength);
+  }
+  return result;
+}
+
+inline int getpeername(const SOCKET socket, sockaddr* const name, int* const length) noexcept
+{
+  socklen_t bsdLength = length != nullptr ? static_cast<socklen_t>(*length) : 0;
+  const int result = ::getpeername(socket, name, &bsdLength);
+  if (length != nullptr) {
+    *length = static_cast<int>(bsdLength);
+  }
+  return result;
+}
+
+inline SOCKET accept(const SOCKET socket, sockaddr* const address, int* const length) noexcept
+{
+  socklen_t bsdLength = length != nullptr ? static_cast<socklen_t>(*length) : 0;
+  const SOCKET result = ::accept(socket, address, length != nullptr ? &bsdLength : nullptr);
+  if (length != nullptr) {
+    *length = static_cast<int>(bsdLength);
+  }
+  return result;
+}
+
+inline int recvfrom(
+  const SOCKET socket, char* const buffer, const int length, const int flags, sockaddr* const from, int* const fromLength
+) noexcept
+{
+  socklen_t bsdLength = fromLength != nullptr ? static_cast<socklen_t>(*fromLength) : 0;
+  const auto result = ::recvfrom(
+    socket, buffer, static_cast<std::size_t>(length), flags, from, fromLength != nullptr ? &bsdLength : nullptr
+  );
+  if (fromLength != nullptr) {
+    *fromLength = static_cast<int>(bsdLength);
+  }
+  return static_cast<int>(result);
+}
+
+inline int getsockopt(const SOCKET socket, const int level, const int name, char* const value, int* const length) noexcept
+{
+  socklen_t bsdLength = length != nullptr ? static_cast<socklen_t>(*length) : 0;
+  const int result = ::getsockopt(socket, level, name, value, &bsdLength);
+  if (length != nullptr) {
+    *length = static_cast<int>(bsdLength);
+  }
+  return result;
+}
+
+// --- Winsock's event model (src/platform/posix/WinsockShim.cpp) ---------------------------
+// WSAEventSelect: a watcher thread polls the socket and sets the event when one of the selected
+// network events is pending, as Winsock does. FD_READ, FD_ACCEPT and FD_CLOSE are reported again
+// while data (or a connection, or the close) is still waiting once the event has been reset or
+// taken by a wait; FD_CONNECT once when a connect completes; FD_WRITE once when selected on a
+// writable socket (and with FD_CONNECT). WSAEventSelect makes the socket non-blocking.
+
+#define FD_READ 0x01
+#define FD_WRITE 0x02
+#define FD_OOB 0x04
+#define FD_ACCEPT 0x08
+#define FD_CONNECT 0x10
+#define FD_CLOSE 0x20
+
+#define WSA_INVALID_EVENT (static_cast<WSAEVENT>(nullptr))
+#define WSA_INFINITE INFINITE
+#define WSA_WAIT_EVENT_0 WAIT_OBJECT_0
+#define WSA_WAIT_IO_COMPLETION WAIT_IO_COMPLETION
+#define WSA_WAIT_TIMEOUT WAIT_TIMEOUT
+#define WSA_WAIT_FAILED WAIT_FAILED
+#define WSA_MAXIMUM_WAIT_EVENTS 64
+
+/// A manual-reset event, not signalled.
+WSAEVENT WSACreateEvent();
+BOOL WSACloseEvent(WSAEVENT event);
+BOOL WSASetEvent(WSAEVENT event);
+BOOL WSAResetEvent(WSAEVENT event);
+/// Ties `socket`'s `networkEvents` (FD_*) to `event`, replacing an earlier selection; a null event
+/// or no events cancels it.
+int WSAEventSelect(SOCKET socket, WSAEVENT event, long networkEvents);
+DWORD WSAWaitForMultipleEvents(DWORD count, const WSAEVENT* events, BOOL waitAll, DWORD milliseconds, BOOL alertable);
 
 inline int ioctlsocket(const SOCKET socket, const unsigned long command, u_long* const argument) noexcept
 {
@@ -148,7 +244,9 @@ inline int WSAGetLastError() noexcept
   case EWOULDBLOCK:
     return WSAEWOULDBLOCK;
   case EINPROGRESS:
-    return WSAEINPROGRESS;
+    // A non-blocking connect that has not finished: Winsock reports it as WSAEWOULDBLOCK
+    // (its WSAEINPROGRESS is a blocking call in progress, which BSD sockets do not have).
+    return WSAEWOULDBLOCK;
   case EALREADY:
     return WSAEALREADY;
   case ENOTSOCK:
