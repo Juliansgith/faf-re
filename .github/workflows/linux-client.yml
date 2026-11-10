@@ -1,0 +1,101 @@
+name: Linux client
+
+# The downloadable native Linux client: built in the release image (tools/linux-build/Dockerfile.release,
+# Ubuntu 22.04 with LLVM's clang 18; runs on glibc 2.34 and up) and packed by tools/linux-build/package.sh
+# into faf-linux-x86_64-<version>.tar.gz. Every run keeps it as an artifact; a linux-v<version> tag also
+# publishes it as that tag's GitHub release. docs/LINUX_CLIENT.md.
+on:
+  workflow_dispatch:
+  push:
+    branches: [faf-neural-ai]
+    # Path filters do not apply to tag pushes: a linux-v* tag always builds.
+    tags: ['linux-v*']
+    paths:
+      - 'src/**'
+      - 'cmake/**'
+      - 'tools/linux-build/**'
+      - 'data/fafengine/**'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - '.github/workflows/linux-client.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-client-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - id: version
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/linux-v*) version="${GITHUB_REF#refs/tags/linux-v}" ;;
+            *) version="$(date -u +%Y%m%d)-g$(git rev-parse --short=9 HEAD)" ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Linux client $version" >> "$GITHUB_STEP_SUMMARY"
+      # The sources the container cannot fetch itself (it has no .git): the submodules and boost, with
+      # their patches, as the Replay parity workflow prepares them.
+      - uses: actions/cache@v6
+        with:
+          path: dependencies/.downloads
+          key: deps-${{ hashFiles('cmake/FafDependencies.cmake') }}
+      - run: cmake -DFAF_DEPENDENCIES_ONLY="WildMagic3p8;zlib-1.2.3;boost_1_34_1;vulkan" -P cmake/FafDependencies.cmake
+      - name: Build
+        env:
+          FAF_LINUX_IMAGE: release
+          FAF_LINUX_CMAKE_ARGS: -DFAF_ULTRA=ON -DFAF_LINUX_CLIENT=ON
+        run: tools/linux-build/build.sh faf_client
+      - name: Package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: tools/linux-build/package.sh "$VERSION"
+      # The program and DXC load on the oldest supported systems: every library and symbol resolves.
+      - name: Check on Ubuntu 22.04, Debian 12 and AlmaLinux 9
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: tools/linux-build/check-package.sh "build/package/faf-linux-x86_64-$VERSION.tar.gz" ubuntu:22.04 debian:12 almalinux:9
+      - uses: actions/upload-artifact@v7
+        with:
+          name: faf-linux-x86_64-${{ steps.version.outputs.version }}
+          path: |
+            build/package/faf-linux-x86_64-*.tar.gz
+            build/package/faf-linux-x86_64-*.tar.gz.sha256
+          retention-days: 14
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/linux-v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write  # the release
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: faf-linux-x86_64-${{ needs.build.outputs.version }}
+          path: package
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          files=(package/faf-linux-x86_64-*.tar.gz package/faf-linux-x86_64-*.tar.gz.sha256)
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber -R "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "${files[@]}" -R "$GITHUB_REPOSITORY" --verify-tag \
+              --title "Linux client $VERSION" \
+              --notes "The native Linux client (x86-64, glibc 2.34 or newer: Ubuntu 22.04, Debian 12, Mint 21, RHEL 9 and later). Unpack it and start \`./faf-launch\`; it needs Forged Alliance and FAF's client data. See README.txt in the archive and docs/LINUX_CLIENT.md."
+          fi
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json tagName,url | tee -a "$GITHUB_STEP_SUMMARY"
