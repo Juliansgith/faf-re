@@ -288,6 +288,13 @@ set(_faf_download_DirectX-Headers
     "24a0b7d8079a2dbbc90753c0d8bc812040d052acce2302e69a97c5d873b313b8"
     "DirectX-Headers-1.619.5"
     "DirectX-Headers-1.619.5.tar.gz")
+# DirectXMath may2026 (MIT): the header-only math DirectXTex includes, which Windows takes from the SDK;
+# the Linux client's DirectXTex build (cmake/deps/directxtex-linux) uses this release, DirectXTex's own.
+set(_faf_download_DirectXMath
+    "https://github.com/microsoft/DirectXMath/archive/refs/tags/may2026.tar.gz"
+    "be483d56cdc7be10b28111e81ebfca83cc1048d99e5b3041555dae26c66aaa32"
+    "DirectXMath-may2026"
+    "DirectXMath-may2026.tar.gz")
 # DXC v1.9.2609 for Linux (LLVM/MIT): libdxcompiler.so and libdxil.so, the same release as the
 # Windows build's dependencies/dxc, so both compile the effects with the same compiler.
 set(_faf_download_dxc-linux
@@ -480,6 +487,7 @@ if(FAF_LINUX OR (CMAKE_SCRIPT_MODE_FILE AND FAF_DEPENDENCIES_ONLY))
   faf_dependency_download(SDL3)
   faf_dependency_download(FAudio)
   faf_dependency_download(DirectX-Headers)
+  faf_dependency_download(DirectXMath)
   faf_dependency_download(dxc-linux)
 endif()
 
@@ -488,7 +496,7 @@ faf_dependency_patches(WildMagic3p8 submodule
 faf_dependency_patches(zlib-1.2.3 submodule
   zlib_1_2_3_faf_required.patch)
 faf_dependency_patches(boost_1_34_1 download
-  boost_1_34_1_faf_required.patch)
+  boost_1_34_1_faf_required.patch boost_1_34_1_faf_posix_recursive_mutex.patch)
 faf_dependency_patches(libjuice download
   libjuice_1_7_4_faf_turn_release.patch)
 faf_dependency_patches(wxWindows-2.4.2 download

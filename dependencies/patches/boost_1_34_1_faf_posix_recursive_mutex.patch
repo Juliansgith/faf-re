@@ -1,0 +1,46 @@
+diff --git a/libs/thread/src/mutex.cpp b/libs/thread/src/mutex.cpp
+--- a/libs/thread/src/mutex.cpp
++++ b/libs/thread/src/mutex.cpp
+@@ -24,6 +24,24 @@
+ #   include "mutex.inl"
+ #elif defined(BOOST_HAS_PTHREADS)
+ #   include <errno.h>
++
++namespace {
++// FAF: the Windows mutex and try_mutex are critical sections, which the thread
++// that holds one may enter again, and the engine relies on that (StatItem's lock
++// is taken again by STAT_GetLuaTable's ToLua). The POSIX ones are recursive too.
++int faf_init_recursive_mutex(pthread_mutex_t* m)
++{
++    pthread_mutexattr_t attr;
++    int res = pthread_mutexattr_init(&attr);
++    if (res != 0)
++        return res;
++    res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
++    if (res == 0)
++        res = pthread_mutex_init(m, &attr);
++    pthread_mutexattr_destroy(&attr);
++    return res;
++}
++}
+ #elif defined(BOOST_HAS_MPTASKS)
+ #    include <MacErrors.h>
+ #    include "mac/init.hpp"
+@@ -194,7 +212,7 @@ void timed_mutex::do_unlock(cv_state&)
+ mutex::mutex()
+ {
+     int res = 0;
+-    res = pthread_mutex_init(&m_mutex, 0);
++    res = faf_init_recursive_mutex(&m_mutex);
+     if (res != 0)
+         throw thread_resource_error();
+ }
+@@ -234,7 +252,7 @@ void mutex::do_unlock(cv_state& state)
+ try_mutex::try_mutex()
+ {
+     int res = 0;
+-    res = pthread_mutex_init(&m_mutex, 0);
++    res = faf_init_recursive_mutex(&m_mutex);
+     if (res != 0)
+         throw thread_resource_error();
+ }
