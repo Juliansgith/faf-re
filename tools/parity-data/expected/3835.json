@@ -9,5 +9,6 @@
   "26916675": {"verdict": "error", "note": "The replay's map, na_alps, isn't on FAF's map server: 404 for the bare name and v0001 to v0012 (05/11/2026). The replay file itself downloads."},
   "26974352": {"verdict": "desync", "note": "One bad checksum at beat 39100 on retail and on ours, then clean"},
   "26990495": {"verdict": "desync", "note": "Retail gives our exact hash at beat 5200, and our sync logs match retail's from beat 5134 to 5204; both live players recorded another"},
-  "27051951": {"verdict": "desync", "note": "Proxima m: desyncs at beat 50, the replay's first checksum; probably the map (docs/RETAIL_REPLAY_PARITY.md)"}
+  "27051951": {"verdict": "desync", "note": "Proxima m: desyncs at beat 50, the replay's first checksum; probably the map (docs/RETAIL_REPLAY_PARITY.md)"},
+  "28000018": {"verdict": "desync", "note": "SCMP_030, 8 players, game version 3839: retail ForgedAlliance.exe gives our exact hash at beat 2550 (4357dc2f), and our sync logs equal retail's at every logged hash from beat 0 to 2559 (10/11/2026); all 8 live players recorded 8bab17b6. Probably content: FAF serves its own scmp_030 (2016) and the run mounted the retail map, not yet tried"}
 }
