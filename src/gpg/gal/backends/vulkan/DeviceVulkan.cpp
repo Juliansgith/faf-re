@@ -949,6 +949,9 @@ namespace gpg::gal
       const Head& head = context.GetHead(static_cast<std::uint32_t>(headIndex));
       std::uint32_t width = head.mWidth;
       std::uint32_t height = head.mHeight;
+#if !defined(_WIN32)
+      vulkan::ApplyWindowFullscreen(head.mWindow, head.mWindowed); // mWindowed: the binary's full-screen flag
+#endif
       if (width == 0U || height == 0U) {
 #if defined(_WIN32)
         RECT client{};
@@ -2396,6 +2399,9 @@ namespace gpg::gal
       Head& head = mDeviceContext.GetHead(static_cast<std::uint32_t>(headIndex));
       std::uint32_t width = head.mWidth;
       std::uint32_t height = head.mHeight;
+#if !defined(_WIN32)
+      vulkan::ApplyWindowFullscreen(head.mWindow, head.mWindowed); // mWindowed: the binary's full-screen flag
+#endif
       if (width == 0U || height == 0U) {
 #if defined(_WIN32)
         RECT client{};

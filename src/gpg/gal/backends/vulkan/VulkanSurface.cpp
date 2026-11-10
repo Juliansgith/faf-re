@@ -135,6 +135,26 @@ namespace gpg::gal::vulkan
     height = static_cast<std::uint32_t>(h);
     return true;
   }
+
+  void ApplyWindowFullscreen(void* const window, const bool fullscreen) noexcept
+  {
+    auto* const sdlWindow = static_cast<SDL_Window*>(window);
+    if (sdlWindow == nullptr) {
+      return;
+    }
+    const bool isFullscreen = (SDL_GetWindowFlags(sdlWindow) & SDL_WINDOW_FULLSCREEN) != 0;
+    if (isFullscreen == fullscreen) {
+      return;
+    }
+    (void)SDL_SetWindowFullscreenMode(sdlWindow, nullptr); // the desktop's mode: borderless full screen
+    if (!SDL_SetWindowFullscreen(sdlWindow, fullscreen)) {
+      gpg::Warnf("Vulkan: SDL_SetWindowFullscreen(%d) failed: %s", fullscreen ? 1 : 0, SDL_GetError());
+      return;
+    }
+    // The swap chain is made right after this, from the window's new size.
+    (void)SDL_SyncWindow(sdlWindow);
+    gpg::Logf("Vulkan: window %s", fullscreen ? "full screen (desktop mode, the frame scaled into it)" : "windowed");
+  }
 } // namespace gpg::gal::vulkan
 
 #endif

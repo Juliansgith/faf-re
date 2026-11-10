@@ -29,5 +29,13 @@ namespace gpg::gal::vulkan
 
   /** The drawable size of `window` in pixels (SDL_GetWindowSizeInPixels); false when unknown. */
   [[nodiscard]] bool WindowPixelSize(void* window, std::uint32_t& width, std::uint32_t& height) noexcept;
+
+  /**
+   * Puts `window` in or out of full screen. `Head::mWindowed` is the binary's full-screen flag (the
+   * Direct3D backends make an exclusive full-screen swap chain of the head's size from it). On Linux
+   * the window covers the desktop at the desktop's own mode instead, and the head's back buffer is
+   * scaled into it at present (the scaled swap chain), so no display mode is changed.
+   */
+  void ApplyWindowFullscreen(void* window, bool fullscreen) noexcept;
 #endif
 } // namespace gpg::gal::vulkan
