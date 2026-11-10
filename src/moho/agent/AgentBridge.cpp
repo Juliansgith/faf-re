@@ -1,8 +1,17 @@
 #include "moho/agent/AgentBridge.h"
 #include "moho/agent/AgentInternal.h"
 
-#include <winsock2.h>
+#include <winsock2.h> // on Linux: platform/posix/win32/winsock2.h, POSIX sockets
+#if defined(_WIN32)
 #include <ws2tcpip.h>
+#include <intrin.h>
+#else
+#include <clocale>
+#include <cstdlib>
+#include <ctime>
+#include <locale.h>
+#include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -15,7 +24,6 @@
 #include <cstring>
 #include <exception>
 #include <fstream>
-#include <intrin.h>
 #include <iterator>
 #include <mutex>
 #include <string>
@@ -154,7 +162,12 @@ namespace moho
       gpg::Logf("AgentBridge: %s; exiting (code %u).", reason, exitCode);
       // TerminateProcess rather than ExitProcess: this runs on the sim thread, and an orderly
       // shutdown from here could wait on locks other threads hold.
+#if defined(_WIN32)
       ::TerminateProcess(::GetCurrentProcess(), exitCode);
+#else
+      std::fflush(nullptr); // _exit skips stdio's buffers (the log)
+      ::_exit(static_cast<int>(exitCode));
+#endif
       for (;;) {
         ::Sleep(1000);
       }
@@ -174,6 +187,18 @@ namespace moho
       LARGE_INTEGER now{};
       ::QueryPerformanceCounter(&now);
       return now;
+    }
+
+    // Milliseconds on a monotonic clock (GetTickCount64 on Windows).
+    std::uint64_t TickMilliseconds()
+    {
+#if defined(_WIN32)
+      return ::GetTickCount64();
+#else
+      timespec now{};
+      ::clock_gettime(CLOCK_MONOTONIC, &now);
+      return static_cast<std::uint64_t>(now.tv_sec) * 1000u + static_cast<std::uint64_t>(now.tv_nsec) / 1000000u;
+#endif
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -196,7 +221,7 @@ namespace moho
           mWinsockStarted = true;
         }
 
-        const ULONGLONG deadline = ::GetTickCount64() + static_cast<ULONGLONG>(timeoutSeconds) * 1000ull;
+        const std::uint64_t deadline = TickMilliseconds() + static_cast<std::uint64_t>(timeoutSeconds) * 1000ull;
         for (;;) {
           const SOCKET candidate = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
           if (candidate == INVALID_SOCKET) {
@@ -215,7 +240,7 @@ namespace moho
           }
 
           ::closesocket(candidate);
-          if (::GetTickCount64() >= deadline) {
+          if (TickMilliseconds() >= deadline) {
             return false;
           }
           ::Sleep(250);
@@ -541,10 +566,22 @@ namespace moho
           ++mCursor;
         }
         double value = 0.0;
+#if defined(_LIBCPP_VERSION) && _LIBCPP_VERSION < 200000
+        // libc++ before 20 has no floating-point from_chars. glibc's strtod is correctly rounded as
+        // from_chars is, so both builds read the same double; the "C" locale keeps the decimal point.
+        static const locale_t cLocale = ::newlocale(LC_ALL_MASK, "C", static_cast<locale_t>(0));
+        const std::string text(begin, mCursor);
+        char* parsedEnd = nullptr;
+        value = ::strtod_l(text.c_str(), &parsedEnd, cLocale);
+        if (text.empty() || parsedEnd != text.c_str() + text.size()) {
+          return Fail("invalid JSON number");
+        }
+#else
         const auto [ptr, ec] = std::from_chars(begin, mCursor, value);
         if (ec != std::errc{} || ptr != mCursor || ptr == begin) {
           return Fail("invalid JSON number");
         }
+#endif
         lua_pushnumber(mState, static_cast<lua_Number>(value));
         return true;
       }
@@ -865,6 +902,29 @@ namespace moho
 
     double MillisecondsSinceProcessStart()
     {
+#if !defined(_WIN32)
+      // /proc/self/stat's 22nd field: the process start in clock ticks since boot; CLOCK_BOOTTIME is now.
+      static const double startMs = [] {
+        double ms = 0.0;
+        if (std::FILE* const file = std::fopen("/proc/self/stat", "r")) {
+          char text[1024] = {};
+          const std::size_t length = std::fread(text, 1, sizeof(text) - 1, file);
+          std::fclose(file);
+          text[length] = '\0';
+          const char* field = std::strrchr(text, ')'); // the command name may hold spaces
+          for (int index = 2; field != nullptr && index < 22; ++index) {
+            field = std::strchr(field + 1, ' ');
+          }
+          if (field != nullptr) {
+            ms = std::strtod(field + 1, nullptr) * 1000.0 / static_cast<double>(::sysconf(_SC_CLK_TCK));
+          }
+        }
+        return ms;
+      }();
+      timespec now{};
+      ::clock_gettime(CLOCK_BOOTTIME, &now);
+      return static_cast<double>(now.tv_sec) * 1000.0 + static_cast<double>(now.tv_nsec) / 1.0e6 - startMs;
+#else
       FILETIME created{}, exited{}, kernel{}, user{};
       FILETIME now{};
       ::GetProcessTimes(::GetCurrentProcess(), &created, &exited, &kernel, &user);
@@ -873,6 +933,7 @@ namespace moho
         return (static_cast<std::uint64_t>(t.dwHighDateTime) << 32) | t.dwLowDateTime;
       };
       return static_cast<double>(value(now) - value(created)) / 10000.0;
+#endif
     }
 
     // ,"load":[["phase",ms],...] -- and forgets them (a later session in this process starts afresh)
@@ -953,6 +1014,13 @@ namespace moho
 
     std::uint64_t ThreadCpu100ns()
     {
+#if !defined(_WIN32)
+      timespec cpu{};
+      if (::clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu) != 0) {
+        return 0;
+      }
+      return static_cast<std::uint64_t>(cpu.tv_sec) * 10000000u + static_cast<std::uint64_t>(cpu.tv_nsec) / 100u;
+#else
       FILETIME created{}, exited{}, kernel{}, user{};
       if (::GetThreadTimes(::GetCurrentThread(), &created, &exited, &kernel, &user) == 0) {
         return 0;
@@ -961,6 +1029,7 @@ namespace moho
         return (static_cast<std::uint64_t>(t.dwHighDateTime) << 32) | t.dwLowDateTime;
       };
       return value(kernel) + value(user);
+#endif
     }
 
     // AgentBridge_Lap([name]): adds the time since the previous lap (or the start of the step) to the
@@ -1390,8 +1459,13 @@ namespace moho
     __declspec(noinline) void ScrubStack(const unsigned char value)
     {
       unsigned char buffer[48 * 1024];
+#if defined(_WIN32)
       __stosb(buffer, value, sizeof(buffer));
       _ReadWriteBarrier();
+#else
+      std::memset(buffer, value, sizeof(buffer));
+      asm volatile("" : : "r"(buffer) : "memory"); // the stores happen
+#endif
       volatile unsigned char sink = buffer[value];
       (void)sink;
     }

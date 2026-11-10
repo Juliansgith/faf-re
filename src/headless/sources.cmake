@@ -15,6 +15,7 @@ set(FAF_HEADLESS_SOURCES
   headless/ReplayInboundCheck.cpp
   headless/ReplayKeyframes.cpp
   headless/ReplayLaunchCheck.cpp
+  headless/LiveLaunch.cpp
   headless/ReplayLuaState.cpp
   headless/ReplayOracleCheck.cpp
   headless/ReplaySeats.cpp

@@ -15,6 +15,7 @@ namespace faf::headless
   struct SReplayOptions
   {
     std::string replayPath;     // `.scfareplay`
+    std::string agentLaunch;    // when set, no replay: a live single-player game from this launch file (LiveLaunch.h)
     std::string label;          // prefix of every line headless prints
     int focusArmy = -1;         // the army whose view `Sim::Sync` builds; -1 = observer
     std::string rejoinPeers;    // when set, no replay: take seat `rejoinSource` back from these peers (address:port=source,...)

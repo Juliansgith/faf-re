@@ -296,8 +296,9 @@ enum LOGICAL_PROCESSOR_RELATIONSHIP
   RelationAll = 0xFFFF,
 };
 struct SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX;
-/// Physical cores and NUMA nodes from sysfs, as fixed-size records in group 0. With no topology to
-/// report: FALSE with ERROR_NOT_SUPPORTED and a length of 0.
+/// Physical cores, NUMA nodes and caches (engine addition: RelationCache, one record per distinct cache)
+/// from sysfs, as fixed-size records in group 0. With no topology to report: FALSE with
+/// ERROR_NOT_SUPPORTED and a length of 0.
 BOOL GetLogicalProcessorInformationEx(
   LOGICAL_PROCESSOR_RELATIONSHIP relation, SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX* buffer, DWORD* length
 );
@@ -683,6 +684,24 @@ struct NUMA_NODE_RELATIONSHIP
   WORD GroupCount;
   GROUP_AFFINITY GroupMask;
 };
+enum PROCESSOR_CACHE_TYPE
+{
+  CacheUnified = 0,
+  CacheInstruction = 1,
+  CacheData = 2,
+  CacheTrace = 3,
+};
+struct CACHE_RELATIONSHIP
+{
+  BYTE Level;
+  BYTE Associativity;
+  WORD LineSize;
+  DWORD CacheSize;
+  PROCESSOR_CACHE_TYPE Type;
+  BYTE Reserved[18];
+  WORD GroupCount;
+  GROUP_AFFINITY GroupMask;
+};
 struct SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX
 {
   LOGICAL_PROCESSOR_RELATIONSHIP Relationship;
@@ -691,6 +710,7 @@ struct SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX
   {
     PROCESSOR_RELATIONSHIP Processor;
     NUMA_NODE_RELATIONSHIP NumaNode;
+    CACHE_RELATIONSHIP Cache;
   };
 };
 void GetCurrentProcessorNumberEx(PROCESSOR_NUMBER* number);

@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Engine addition (faf-neural-ai): a parity Linux build from any host with Docker.
+#
+#   tools/linux-build/build.sh [cmake --build targets...]      (default: headless server training)
+#
+# Builds the image (tools/linux-build/Dockerfile, the pinned toolchain) when missing, copies the
+# source tree into the `faf-linux-work` volume (a build straight off a Windows bind mount is several
+# times slower) and builds the linux-clang-x64-release-plain preset there. The programs end up in
+# build/linux-x64/ next to this checkout. FAF_LINUX_PRESET overrides the preset; FAF_LINUX_CMAKE_ARGS
+# the extra cache settings (default -DFAF_ULTRA=ON, the exact-results speed codegen the Windows
+# training build uses too).
+#
+# Inside the container (FAF_LINUX_BUILD_INNER=1) the same script does the copy and the build.
+set -euo pipefail
+
+preset="${FAF_LINUX_PRESET:-linux-clang-x64-release-plain}"
+cmake_args="${FAF_LINUX_CMAKE_ARGS:--DFAF_ULTRA=ON}"
+targets=("$@")
+if [ ${#targets[@]} -eq 0 ]; then
+  targets=(headless server training)
+fi
+
+if [ "${FAF_LINUX_BUILD_INNER:-0}" = "1" ]; then
+  mkdir -p /work/src /work/out
+  # The checkout's .git is a worktree link to a host path; the build only needs the files.
+  rsync -a --delete --exclude '/.git' --exclude '/build/' --exclude '/out/' /src/ /work/src/
+  cd /work/src
+  # shellcheck disable=SC2086 # cmake_args is a list of -D settings
+  cmake --preset "$preset" -B /work/build $cmake_args >/work/configure.log 2>&1 \
+    || { tail -40 /work/configure.log; exit 1; }
+  cmake --build /work/build --target "${targets[@]}" -- -k 0
+  rm -rf /work/out/*
+  for target in "${targets[@]}"; do
+    found="$(find /work/build -maxdepth 3 -type f -name "$target" -perm -u+x | head -1)"
+    if [ -n "$found" ]; then
+      cp "$found" /work/out/
+    fi
+  done
+  cp -r /work/out/. /src-out/
+  exit 0
+fi
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd "$here/../.." && pwd)"
+image="faf-linux-build:24.04"
+if ! docker image inspect "$image" >/dev/null 2>&1; then
+  docker build -t "$image" "$here"
+fi
+mkdir -p "$root/build/linux-x64"
+# MSYS (Git Bash) would rewrite the container paths below into Windows ones.
+MSYS_NO_PATHCONV=1 docker run --rm \
+  -e FAF_LINUX_BUILD_INNER=1 -e FAF_LINUX_PRESET="$preset" -e FAF_LINUX_CMAKE_ARGS="$cmake_args" \
+  -v faf-linux-work:/work \
+  -v "$root:/src:ro" \
+  -v "$root/build/linux-x64:/src-out" \
+  "$image" bash /src/tools/linux-build/build.sh "${targets[@]}"
+echo "Linux programs: $root/build/linux-x64"

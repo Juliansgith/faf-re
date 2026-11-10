@@ -51,11 +51,10 @@ namespace moho
    * the sim. If the agent disconnects the game process exits, so a crashed trainer cannot leave
    * orphaned game instances behind.
    *
-   * Windows only (Winsock, Win32 timing and process control). Elsewhere the moho/agent sources are not
-   * built (cmake/FafLinux.cmake) and the hooks below are inline no-ops that report the bridge as off.
+   * Windows and Linux (the native Linux build's `headless` and `training` programs; on Linux the
+   * sockets go through platform/posix/win32/winsock2.h and the timing through the POSIX clocks).
    */
 
-#if defined(_WIN32)
   /**
    * Records that the loading phase `phase` (a string literal) was reached, in milliseconds since the
    * process started; the next hello message reports the marks ("load"). Any thread; inert without
@@ -131,17 +130,4 @@ namespace moho
    *     UserUnit and its per-beat work shrinks with it.
    */
   [[nodiscard]] bool AGENT_TrainingMode();
-#else
-  inline void AGENT_LoadMark(const char*) {}
-  inline void AGENT_OnSimBeatStart() {}
-  inline void AGENT_OnSimBeat(Sim*) {}
-  inline void AGENT_NoteStreamOp(unsigned, unsigned) {}
-  [[nodiscard]] inline int AGENT_ResolvePacingSimRate(const int requestedSimRate) { return requestedSimRate; }
-  [[nodiscard]] inline bool AGENT_UserDrainsAllBeats() { return false; }
-  [[nodiscard]] inline int AGENT_ScaleRunAheadLimit(const int limit) { return limit; }
-  [[nodiscard]] inline int AGENT_ForcedGcPeriod(const int stockPeriodTicks) { return stockPeriodTicks; }
-  [[nodiscard]] inline bool AGENT_SkipParticleEmission() { return false; }
-  [[nodiscard]] inline bool AGENT_SkipRenderOnlyAssets() { return false; }
-  [[nodiscard]] inline bool AGENT_TrainingMode() { return false; }
-#endif
 } // namespace moho

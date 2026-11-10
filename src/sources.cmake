@@ -1052,6 +1052,7 @@ set(FAF_ENGINE_SOURCES
   moho/ui/SelectionDragger.cpp
   moho/ui/UiRuntimeTypeUpcastBridges.cpp
   moho/misc/SessionStartup.cpp
+  moho/misc/SinglePlayerSessionInfo.cpp
   moho/misc/ReplaySessionSetup.cpp
   moho/misc/CSaveGameRequestImpl.cpp
   moho/script/ScriptedDecalTypeInfo.cpp

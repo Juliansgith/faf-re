@@ -1,4 +1,5 @@
 #include "headless/ReplayRunner.h"
+#include "headless/LiveLaunch.h"
 #include "headless/SessionLoad.h"
 #include "headless/ReplayLuaState.h"
 #include "headless/ReplaySyncWriters.h"
@@ -434,6 +435,7 @@ namespace faf::headless
     }
 
     const bool liveRejoin = !options.rejoinPeers.empty();
+    const bool liveGame = !options.agentLaunch.empty();
     const bool rejoinRehearsal = options.rejoinSource >= 0 && !liveRejoin;
     std::unique_ptr<gpg::Stream> rejoinRecording;
     fa::auto_ptr<moho::SWldSessionInfo> sessionInfo;
@@ -453,6 +455,12 @@ namespace faf::headless
       }
       if (failed) {
         result.error = std::string("the rejoin was refused: ") + reason.c_str();
+        return result;
+      }
+    } else if (liveGame) {
+      // Engine addition (faf-neural-ai): a live single-player game (LiveLaunch.h).
+      sessionInfo = BuildLiveSession(options.agentLaunch, result.error);
+      if (sessionInfo.get() == nullptr) {
         return result;
       }
     } else {
@@ -543,7 +551,7 @@ namespace faf::headless
     // Issue #217: a dump this run writes (`/desyncdumpbeat`) names the map and game mods, and
     // says it came from a replay, as a game's CWldSession would tell the recorder.
     moho::CDesyncRecorder::SetSessionInfo(
-      sessionInfo->mMapName.c_str(), launchInfo->mGameMods.c_str(), true, sessionInfo->mIsMultiplayer
+      sessionInfo->mMapName.c_str(), launchInfo->mGameMods.c_str(), !liveGame, sessionInfo->mIsMultiplayer
     );
 
     moho::SWldGameData gameData{};
@@ -599,7 +607,13 @@ namespace faf::headless
     // The focus army: the sim and the driver both start from the launch info's original
     // source, which a lockstep client sets to its own army (CLobby::LaunchGame) and a replay
     // viewer to -1.
-    if (!liveRejoin) {
+    if (liveGame) {
+      // A single-player game's own source is the player's army (WLD_SetupSessionInfo), as on Windows;
+      // --focus still overrides it.
+      if (options.focusArmy >= 0) {
+        launchInfo->mCommandSources.mOriginalSource = options.focusArmy;
+      }
+    } else if (!liveRejoin) {
       launchInfo->mCommandSources.mOriginalSource = options.focusArmy;
     } else {
       moho::REJOIN_PrepareRestore(*sessionInfo);
@@ -796,7 +810,10 @@ namespace faf::headless
 
     moho::IClientManager* const clientManager = sessionInfo->mClientManager;
     sessionInfo->mClientManager = nullptr;
-    moho::SIM_SetSessionPacing(rejoinRehearsal || liveRejoin ? moho::ESimSessionPacing::Network : moho::ESimSessionPacing::Replay);
+    moho::SIM_SetSessionPacing(
+      liveGame ? moho::ESimSessionPacing::Local
+               : (rejoinRehearsal || liveRejoin ? moho::ESimSessionPacing::Network : moho::ESimSessionPacing::Replay)
+    );
     std::unique_ptr<moho::ISTIDriver> driver(moho::SIM_CreateDriver(
       static_cast<moho::CClientManagerImpl*>(clientManager), nullptr, sessionInfo->mLaunchInfo, sessionInfo->mSourceId
     ));

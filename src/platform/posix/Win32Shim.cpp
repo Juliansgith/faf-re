@@ -1134,6 +1134,66 @@ BOOL GetLogicalProcessorInformationEx(
         addRecord(cpus, node);
       }
     }
+  } else if (relation == RelationCache) {
+    // Engine addition (faf-neural-ai): one record per distinct (level, type, sharing CPUs) cache,
+    // from /sys/devices/system/cpu/cpuN/cache/indexK (what ThreadPlacement's L3 mode reads).
+    const DWORD_PTR online = ReadCpuListFile("/sys/devices/system/cpu/online");
+    const auto readText = [](const std::string& path) {
+      std::string text;
+      if (std::FILE* const file = std::fopen(path.c_str(), "r")) {
+        char line[128] = {};
+        if (std::fgets(line, sizeof(line), file) != nullptr) {
+          text = line;
+        }
+        std::fclose(file);
+      }
+      while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ')) {
+        text.pop_back();
+      }
+      return text;
+    };
+    for (unsigned cpu = 0; cpu < sizeof(DWORD_PTR) * 8; ++cpu) {
+      if ((online & (DWORD_PTR{1} << cpu)) == 0) {
+        continue;
+      }
+      for (unsigned index = 0; index < 16; ++index) {
+        const std::string base = "/sys/devices/system/cpu/cpu" + std::to_string(cpu) + "/cache/index" + std::to_string(index);
+        const std::string levelText = readText(base + "/level");
+        if (levelText.empty()) {
+          break;
+        }
+        const DWORD_PTR shared = ReadCpuListFile((base + "/shared_cpu_list").c_str()) & online;
+        if (shared == 0) {
+          continue;
+        }
+        const std::string typeText = readText(base + "/type");
+        const PROCESSOR_CACHE_TYPE type =
+          typeText == "Data" ? CacheData : typeText == "Instruction" ? CacheInstruction : CacheUnified;
+        const BYTE level = static_cast<BYTE>(std::atoi(levelText.c_str()));
+        bool duplicate = false;
+        for (const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX& existing : records) {
+          if (existing.Cache.Level == level && existing.Cache.Type == type && existing.Cache.GroupMask.Mask == shared) {
+            duplicate = true;
+            break;
+          }
+        }
+        if (duplicate) {
+          continue;
+        }
+        SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX record{};
+        record.Relationship = RelationCache;
+        record.Size = static_cast<DWORD>(sizeof(record));
+        record.Cache.Level = level;
+        record.Cache.Type = type;
+        record.Cache.GroupCount = 1;
+        record.Cache.GroupMask.Mask = shared;
+        const std::string sizeText = readText(base + "/size"); // e.g. "32768K"
+        record.Cache.CacheSize = static_cast<DWORD>(
+          std::strtoul(sizeText.c_str(), nullptr, 10) * (sizeText.find('K') != std::string::npos ? 1024u : 1u)
+        );
+        records.push_back(record);
+      }
+    }
   }
   const DWORD needed = static_cast<DWORD>(records.size() * sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX));
   if (needed == 0) {

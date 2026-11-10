@@ -297,7 +297,14 @@ int HEADLESS_Main(int argc, char** argv)
   (void)ReadOption("--label", gLabel);
   options.label = gLabel;
   const bool liveRejoin = ReadOption("--rejoin-peers", options.rejoinPeers);
-  if ((!ReadOption("--replay", options.replayPath) && !liveRejoin) || !moho::CFG_GetArgOption("/init", 1, nullptr)) {
+  // Engine addition (faf-neural-ai): `/agentlaunch <file>` plays a live training game instead of a replay,
+  // the switch the Windows game takes for the same game (LiveLaunch.h).
+  fa::vector<fa::string> agentLaunchArgs;
+  if (moho::CFG_GetArgOption("/agentlaunch", 1, &agentLaunchArgs) && !agentLaunchArgs.empty()) {
+    options.agentLaunch = agentLaunchArgs[0].c_str();
+  }
+  const bool liveGame = !options.agentLaunch.empty();
+  if ((!ReadOption("--replay", options.replayPath) && !liveRejoin && !liveGame) || !moho::CFG_GetArgOption("/init", 1, nullptr)) {
     PrintUsage();
     return kExitBadInput;
   }
@@ -453,7 +460,11 @@ int HEADLESS_Main(int argc, char** argv)
     return kExitBadInput;
   }
 #endif
-  std::printf("[%s] replay %s\n", gLabel.c_str(), options.replayPath.c_str());
+  if (liveGame) {
+    std::printf("[%s] live game %s\n", gLabel.c_str(), options.agentLaunch.c_str());
+  } else {
+    std::printf("[%s] replay %s\n", gLabel.c_str(), options.replayPath.c_str());
+  }
   std::fflush(stdout);
 
   // From the first mount on, so the trace holds everything the run needs.

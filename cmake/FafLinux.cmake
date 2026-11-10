@@ -140,9 +140,9 @@ list(FILTER FAF_SIM_SOURCES EXCLUDE REGEX "^gpg/core/diagnostics/(CrashHooks|Cra
 # connector factories fail here as on a Windows host without Winsock.
 # NetPeerTransport (issue #232) belongs to CNetUDPConnector and goes with it.
 list(FILTER FAF_SIM_SOURCES EXCLUDE REGEX "^moho/net/(CNetDatagramSocketImpl|CNetTCPBuf|CNetTCPConnection|CNetTCPConnector|CNetTCPServerImpl|CNetUDPConnection|CNetUDPConnector|NetPeerTransport|INetDatagramSocket|INetTCPServer|INetTCPSocket)\\.cpp$")
-# The agent bridge (moho/agent: Winsock, Win32 timing and process control) is Windows only;
-# moho/agent/AgentBridge.h makes its hooks inline no-ops elsewhere.
-list(FILTER FAF_SIM_SOURCES EXCLUDE REGEX "^moho/agent/")
+# The agent bridge (moho/agent, faf-neural-ai) is in: its sockets go through
+# platform/posix/win32/winsock2.h and its timing through the POSIX clocks. AgentNetDiag.cpp is
+# client-only (src/sim_sources.cmake) and stays out with the rest of the client.
 
 set(_faf_sim_files "")
 foreach(_src IN LISTS FAF_SIM_SOURCES)
