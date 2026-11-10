@@ -3,7 +3,8 @@ faf-re native Linux client @VERSION@ (x86-64)
 
 A native Linux build of the faf-re engine, the reconstruction of the Supreme Commander: Forged Alliance
 engine, for FAF (Forged Alliance Forever). Window, input and sound through SDL 3, Vulkan rendering, the
-same simulation as on Windows. https://github.com/Draiget/faf-re, docs/LINUX_CLIENT.md there.
+same simulation as on Windows. The engine: https://github.com/Draiget/faf-re. This Linux build and
+its guide: https://github.com/Juliansgith/faf-re, docs/LINUX_CLIENT.md.
 
 What it needs
 -------------
@@ -18,7 +19,12 @@ What it needs
   on Linux, the first time it starts a game or a replay. The game uses that folder's bin/init_faf.lua
   and gamedata/*.nx2.
 
-Online play is not in the Linux build yet: single player, skirmish against the AI and replays are.
+What works: single player, skirmish against the AI, replays, movies, and online lockstep games with
+Windows players in the same game (the game side; starting one from FAF's client on Linux has not
+been tried yet, see "Online play" in the guide).
+
+So far this build has only run on software Vulkan (Mesa lavapipe), never on a GPU driver. If it
+misbehaves on yours, the guide's "Checking a GPU" has a script that tests it and packs the logs.
 
 Starting it
 -----------
