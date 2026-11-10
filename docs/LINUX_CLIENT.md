@@ -200,6 +200,19 @@ relay with one local socket per side, as the adapter's.
 - Linux hosting, Windows joining: 3613 beats (6 min 1 s), the checksum logs identical on every beat
   (73 non-zero digests), no mismatch line.
 
+In those two runs the human players gave no orders; only the AI armies played. Two more runs the
+same day had both players' games send orders the whole time
+(`tools/scenarios/mpemu-busy-players`, mounted next to the AI armies): every few seconds each
+game orders reinforcements for its army and an attack-move on another army, with the unit type,
+count, place and target picked by that game's own UI random numbers, so the other game only has
+them from the network. The Linux commander also got build orders by mouse in the Linux client.
+
+- Windows hosting, Linux joining: 6477 beats (10 min 26 s), 100 rounds of orders from the Windows
+  game and 30 from the Linux game (its UI ran slower on the software renderer), three commanders
+  killed, the Linux base overrun; the checksum logs identical on every beat (130 non-zero digests).
+- Linux hosting, Windows joining: 6313 beats (10 min 6 s), the same order counts; the checksum
+  logs identical on every beat (127 non-zero digests).
+
 To repeat it, start `python tools/linux-build/mixed-lockstep.py --host win` (or `--host linux`) on
 the Windows host; it prints the `/gpgnet` and autolobby switches of both games. The Linux game runs
 through `tools/linux-build/run.sh`, its `/gpgnet` address being host.docker.internal's.

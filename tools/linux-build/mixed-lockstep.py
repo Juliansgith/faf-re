@@ -19,6 +19,8 @@ Then start the two games with the printed switches. Every GPGNet message is prin
 <out>/gpgnet.log; the relay's packet counts are printed every 10 s. The 10/11/2026 runs used, with
 init_mp.lua being FAF's init_faf.lua plus MountDirectory(<tools/scenarios/mpemu-ai-armies>, "/")
 (four AI armies join at launch; on Windows its first line also sets InitFileDir to FAF's bin folder):
+Mounting tools/scenarios/mpemu-busy-players the same way as well makes both players' games send
+orders all game long (reinforcements and attack-moves picked at random in each game's UI).
 
   main_x64.exe /init init_mp.lua /nobugreport /gpgnet 127.0.0.1:47101 /log win.log
       /windowed 1024 768 /players 2 /team 1 /startspot 1 /nosound /prefs mixedlockstep.prefs
